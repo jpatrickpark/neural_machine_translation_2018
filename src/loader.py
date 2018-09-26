@@ -14,7 +14,7 @@ def chinese_tokenizer(line):
     # TODO: use Stanford tokenizer on prince
     return list(jieba.cut(line, cut_all=False))
 
-def load_chinese_english_data(data_dir, njobs):
+def load_chinese_english_data(data_dir, njobs, split_chinese_into_characters=False):
     '''
     Loads the following files:
         data_dir/train.cn, data_dir/train.en,
@@ -25,6 +25,7 @@ def load_chinese_english_data(data_dir, njobs):
 
     jieba.enable_parallel(njobs)
 
+    # TODO: if split_chinese_into_characters:
     # TODO: preprocessing and postprocessing.
     ZH = data.Field(
         tokenize=chinese_tokenizer, 
@@ -35,7 +36,7 @@ def load_chinese_english_data(data_dir, njobs):
     EN = data.Field(
         tokenize=toktok.tokenize, 
         init_token=config.SOS_TOKEN,
-        eos_token=config.EOS_TOKEN, 
+        eos_token=config.EOS_TOKEN,
         lower=True
     )
 
