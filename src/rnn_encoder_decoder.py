@@ -218,7 +218,7 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
             encoder_optimizer, 
             decoder_optimizer, 
             loss_function,
-            train_batch,
+            val_batch,
             device
         )
         val_loss_list.append(loss)
