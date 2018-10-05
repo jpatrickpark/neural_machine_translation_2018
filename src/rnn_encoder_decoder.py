@@ -34,9 +34,9 @@ def run(args):
         for name, param in net.named_parameters(): 
             #print(name, type(param), param)
             if 'bias' in name:
-                nn.init.constant(param, 0.0)
+                nn.init.constant_(param, 0.0)
             elif 'weight' in name:
-                nn.init.xavier_normal(param)
+                nn.init.xavier_normal_(param)
             #nn.init.normal_(param, std=0.01)
 
     # TODO: other optimizers
@@ -76,8 +76,6 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
     
     loss = 0
     
-    # start decoder input by config.SOS_TOKEN
-    # stop when config.EOS_TOKEN is detected
     # TODO: it seems that currently batch size is always the same. Make sure to use the last batch
     target_sequence_length, batch_size = batch.trg.shape
     #print("This should be batch size:", batch_size) #
@@ -86,54 +84,75 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
     
     encoder(batch.src)
     
-    # this is needed when we are not using teacher forcing
-    decoder_input = torch.tensor([[config.SOS_TOKEN]*args.batch_size], device=device, requires_grad=False)
-    
     # This step is necessary to get the hidden state from encoder
     decoder.hidden = encoder.hidden
     
-    # TODO: to feed decoder's output word, the vocabulary with the highest probability,
-    # into itself when predicting next token in sequence and only use teacher forcing
-    # with probability of args.teacher_forcing
-    #if (phase == "train") and (np.random.rand() < args.teacher_forcing):
-    #    pass
-    #else:
-    #    pass
     
     # TEACHER FORCING
     # Feed all target sentences at once instead of reusing output as input
     # nice to look, and should be fast
-    logits = decoder(batch.trg)
-    # get prediction
-    # log_softmax with NLLLoss == CrossEntropyLoss with logits
-    output = F.log_softmax(logits, dim=1)
-    #loss = torch.nn.CrossEntropyLoss()(logits, dim=1)
-    # Now, loop through output and calculate loss
-    # be careful not to compare SOS_token with first non_sos token
-    # make sure to stop when encountered EOS_token
+    number_of_loss_calculation = 0
+    if phase == 'train' and np.random.random() < args.teacher_forcing:
+        logits = decoder(batch.trg)
+        # get prediction
+        # log_softmax with NLLLoss == CrossEntropyLoss with logits
+        output = F.log_softmax(logits, dim=1)
+
+        # Now, loop through output and calculate loss
+        # be careful not to compare SOS_token with first non_sos token
+        # make sure to stop when encountered EOS_token
     
-    # first output is what the decoder produced after seeing SOS token
-    # therefore, compare it with second target token
-    # TODO: we do not need to feed the last EOS token to the decoder. fix it
-    # TODO: we do not need to feed any padding token either. 
-    #       do not calculate loss for these tokens for some shorter batches
-    for i in range(target_sequence_length-1):
-        loss += loss_function(output[i,:,:], batch.trg[i+1,:])
-        
+        # order of nested for loop is important!
+        for j in range(batch_size):
+            for i in range(target_sequence_length-1):
+                if batch.trg[i,j] == config.EOS_TOKEN:
+                    # we do not need to feed the last EOS token to the decoder. 
+                    # we do not need to feed any padding token either. 
+                    # move onto the next data in the batch.
+                    break
+                # first output is what the decoder produced after seeing SOS token
+                # therefore, compare it with second target token
+                loss += loss_function(output[i,j,:].view(1,-1), batch.trg[i+1,j].view(1))
+                number_of_loss_calculation += 1
+                
+    else:
+        # this is needed when we are not using teacher forcing
+        # To feed output of the decoder (the word with highest prob) into itself, has to use for loop, will be slower (is there faster alternative?)
+        decoder_input = torch.tensor([config.SOS_TOKEN]*batch_size, device=device, requires_grad=False).view(1,-1)
+        eos_encountered_list = [False]*batch_size
+        i = 0
+        while ((i < args.max_sentence_length) and (i < target_sequence_length) and (sum(eos_encountered_list) < batch_size)): # fix off-by-1 error, if any
+            
+            logits = decoder(decoder_input)
+            output = F.log_softmax(logits, dim=1)
+            decoder_input = torch.tensor([config.SOS_TOKEN]*batch_size, device=device, requires_grad=False).view(1,-1)
+            for j in range(batch_size):   
+                # get index of maximum probability word
+                max_index = output[0,j].max(0)[1]
+                decoder_input[0,j] = max_index#.detach()?
+                
+                if (not eos_encountered_list[j]) and (i+2 <= len(batch.trg[:,j])):
+                    loss += loss_function(output[0,j,:].view(1,-1), batch.trg[i+1,j].view(1))
+                    number_of_loss_calculation += 1
+                
+                if max_index == config.EOS_TOKEN:
+                    # we do not need to feed the last EOS token to the decoder. stop.
+                    eos_encountered_list[j] = True
+            
+            i += 1
     
-    # To feed output of the decoder into itself, has to use for loop, will be slower (is there faster alternative?)
 
     if phase == "train":
         loss.backward() # this should calculate gradient for both encoder and decoder
 
-        nn.utils.clip_grad_norm(encoder.parameters(), args.clip)
-        nn.utils.clip_grad_norm(decoder.parameters(), args.clip)
+        nn.utils.clip_grad_norm_(encoder.parameters(), args.clip)
+        nn.utils.clip_grad_norm_(decoder.parameters(), args.clip)
 
         decoder_optimizer.step() # does it really matter which one takes step first?
         encoder_optimizer.step()
 
     # return loss / batch_size to compare loss between batches of different sizes
-    return loss.item() / batch_size
+    return loss.item() / number_of_loss_calculation
     
     
 def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, epoch_idx, train_data, val_data):
@@ -238,6 +257,7 @@ def rnn_encoder_decoder_argparser():
     parser.add_argument('--l2_penalty', help="L2 pelnalty coefficient in optimizer", type=float,  default=1e-06) #1e-06
     parser.add_argument('--clip', help="clip coefficient in optimizer", type=float,  default=1)
     parser.add_argument('--teacher_forcing', help="probability of performing teacher forcing", type=float,  default=0.5)
+    parser.add_argument("--max_sentence_length", help="maximum sentence length", type=int, default=50)
     return parser
 
 if __name__ == '__main__':
