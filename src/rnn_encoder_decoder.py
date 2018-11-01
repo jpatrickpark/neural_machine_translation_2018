@@ -13,11 +13,19 @@ from collections import defaultdict
 
 def run(args):
     device = torch.device("cuda" if (not args.cpu) and torch.cuda.is_available() else "cpu")
+    print("Using device", device)
     
     train_data, val_data, test_data, src, trg = loader.load_chinese_english_data(args.data, args.njobs)
     
     src_padding_idx = src.vocab.stoi['<pad>']
     trg_padding_idx = trg.vocab.stoi['<pad>']
+    
+    for i in range(5):
+        print(i, src.vocab.itos[i])
+        print(i, trg.vocab.itos[i])
+    
+    assert src_padding_idx == config.PAD_TOKEN
+    assert trg_padding_idx == config.PAD_TOKEN
     
     #src_unk_idx = src.vocab.stoi['<unk>']
     #trg_unk_idx = trg.vocab.stoi['<unk>']
@@ -70,6 +78,7 @@ def early_stop(loss_history, early_stop_k):
 def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, batch, device):
 
     assert phase in ("train", "val", "test"), "invalid phase"
+    
     if phase == "train":
         encoder_optimizer.zero_grad()
         decoder_optimizer.zero_grad()
@@ -118,30 +127,36 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
     else:
         # this is needed when we are not using teacher forcing
         # To feed output of the decoder (the word with highest prob) into itself, has to use for loop, will be slower (is there faster alternative?)
+        translated_tokens_list = []
         decoder_input = torch.tensor([config.SOS_TOKEN]*batch_size, device=device, requires_grad=False).view(1,-1)
+        translated_tokens_list.append(decoder_input)
         eos_encountered_list = [False]*batch_size
         i = 0
-        while ((i < args.max_sentence_length) and (i < target_sequence_length) and (sum(eos_encountered_list) < batch_size)): # fix off-by-1 error, if any
+        
+        # TODO: Even though the logic might be correct, the speed is extremely slow.
+        while ((i < args.max_sentence_length) and (i+1 < target_sequence_length) and (sum(eos_encountered_list) < batch_size)): # fix off-by-1 error, if any
             
             logits = decoder(decoder_input)
             output = F.log_softmax(logits, dim=1)
-            decoder_input = torch.tensor([config.SOS_TOKEN]*batch_size, device=device, requires_grad=False).view(1,-1)
+            decoder_input = torch.tensor([config.PAD_TOKEN]*batch_size, device=device, requires_grad=False).view(1,-1)
             for j in range(batch_size):   
-                # get index of maximum probability word
-                max_index = output[0,j].max(0)[1]
-                decoder_input[0,j] = max_index#.detach()?
                 
-                if (not eos_encountered_list[j]) and (i+2 <= len(batch.trg[:,j])):
+                if not eos_encountered_list[j]:
+                    # get index of maximum probability word
+                    max_index = output[0,j].max(0)[1]
+                    decoder_input[0,j] = max_index
                     loss += loss_function(output[0,j,:].view(1,-1), batch.trg[i+1,j].view(1))
                     number_of_loss_calculation += 1
                 
-                if max_index == config.EOS_TOKEN:
-                    # we do not need to feed the last EOS token to the decoder. stop.
-                    eos_encountered_list[j] = True
+                    if max_index == config.EOS_TOKEN or batch.trg[i+1,j] == config.EOS_TOKEN: #?
+                        # if EOS token, stop.
+                        eos_encountered_list[j] = True
+                    
             
+            translated_tokens_list.append(decoder_input)
             i += 1
     
-
+        
     if phase == "train":
         loss.backward() # this should calculate gradient for both encoder and decoder
 
@@ -151,8 +166,14 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
         decoder_optimizer.step() # does it really matter which one takes step first?
         encoder_optimizer.step()
 
-    # return loss / batch_size to compare loss between batches of different sizes
-    return loss.item() / number_of_loss_calculation
+        # do not return translation output when training
+        translation_output = None
+    
+    # if validation, test: output translated sentences as well
+    else:
+        translation_output = torch.cat(translated_tokens_list, dim=0)
+        
+    return loss.item() / number_of_loss_calculation, translation_output
     
     
 def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, epoch_idx, train_data, val_data):
@@ -184,7 +205,7 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
     
     train_loss_list = []
     for i, train_batch in enumerate(iter(train_iter)):
-        loss = run_batch(
+        loss, _ = run_batch(
             "train",
             args,
             encoder,
@@ -210,7 +231,7 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
     
     val_loss_list = []
     for i, val_batch in enumerate(iter(val_iter)):
-        loss = run_batch(
+        loss, translation_output = run_batch(
             "val",
             args,
             encoder,
