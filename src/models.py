@@ -106,7 +106,42 @@ class RnnDecoder(nn.Module):
         x = self.linear(x)
         #print("after linear shape", x.shape) # torch.Size([40, 16, 5679])
         return x
+import torch
+import torch.nn as nn
+from torch import optim
+import torch.nn.functional as F
+import config
 
+class AttnRnnDecoder(nn.Module):
+    def __init__(self, args, padding_idx, trg_vocab_size, max_sent_length):
+        super(RnnDecoder, self).__init__()
+        self.args = args
+
+        self.embedding = nn.Embedding(trg_vocab_size, args.embedding_size, padding_idx = padding_idx)
+        
+        # Use only one layer of RNN in decoder for now
+        self.rnn = config.RNN_TYPES[self.args.rnn_type](input_size = args.embedding_size, hidden_size = args.hidden_size, dropout = args.dropout)
+        
+
+        self.attn_layer  = nn.Linear(args.hidden_size, args.hidden_size, bias=True)
+
+        self.out = nn.Linear(args.hidden_size, trg_vocab_size)
+        
+    def forward(self, x, prev_hidden, encoder_output):
+        '''
+        Args:
+            encoder_output: hidden state output from encoder; size (hidden_size, max_sent_len)
+        '''
+        x = self.embedding(x)
+        attn_part1 = self.attn_layer(prev_hidden)
+        attn_weights = F.softmax(torch.matmul(attn_part1, encoder_out), dim = 1)
+        attn_combined = torch.matmul(attn_weights, encoder_out.transpose(1,0))
+        attn_combined = F.relu(attn_combined)
+        x, self.hidden = self.rnn(x, attn_combined) 
+        x = F.relu(x)
+        x = self.linear(x)
+
+        return x
     
 class RnnEncoderDecoder(nn.Module):
     # I thought this will be nicer to use a big model that has both encoder and decoder
