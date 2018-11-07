@@ -70,6 +70,39 @@ class RnnEncoder(nn.Module):
             )
             nn.init.xavier_normal_(self.cell_state)
     
+
+class CnnEncoder(nn.Module):
+    
+    def __init__(self, args, padding_idx, src_vocab_size):
+                    
+        super(CnnEncoder, self).__init__()
+        
+        self.position_embedding = nn.Embedding(args.max_sentence_length, args.embedding_size)
+        self.word_embedding = nn.Embedding(src_vocab_size, args.embedding_size, padding_idx = padding_idx)
+
+        self.conv = nn.ModuleList([nn.Conv1d(args.hidden_size, args.hidden_size, args.kernel_size,
+                                      padding=args.kernel_size // 2) for _ in range(args.num_encoder_layers)])
+
+    def forward(self, position_ids, x):
+        
+        # Get position and word embeddings 
+        position_embed = self.position_embedding(position_ids)
+        word_embed = self.word_embedding(x)
+        
+        # Apply dropout to the sum of position + word embeddings
+        embed = F.dropout(position_embed + word_embed, args.dropout, self.training)
+        
+        # Transform the input to be compatible for Conv1d
+        embed = torch.unsqueeze(embed.transpose(0, 1), 0)
+        
+        # Successive application of convolution layers followed by residual connection and non-linearity        
+        output = embed
+        for i, layer in enumerate(self.conv):
+          # layer(output) is the conv operation, after which we add the original output creating a residual connection
+            output = F.tanh(layer(output)+output)        
+
+        return output
+    
     
 class RnnDecoder(nn.Module):
     def __init__(self, args, padding_idx, trg_vocab_size):
@@ -124,14 +157,14 @@ class Attn(nn.Module):
             self.attn = nn.Linear(self.hidden_size * 2, hidden_size)
             self.v = nn.Parameter(torch.FloatTensor(1, hidden_size))
 
-    def forward(self, hidden, encoder_outputs):
+    def forward(self, hidden, encoder_outputs_a, encoder_outputs_c=encoder_outputs_a):
         '''
         Return 
             context_vector = size B x 1 x hidden_size'''
         # Create variable to store attention energies
-        energy = self.score(hidden, encoder_outputs)
+        energy = self.score(hidden, encoder_outputs_a)
         score = F.softmax(energy, dim = 1).view(1, self.batch_size, -1)
-        context_vector = torch.bmm(score.transpose(1,0), encoder_outputs.transpose(1,0))
+        context_vector = torch.bmm(score.transpose(1,0), encoder_outputs_c.transpose(1,0))
         #print(self.method, context_vector.shape)
         return context_vector, score
     
@@ -186,7 +219,7 @@ class LuongAttnDecoderRNN(nn.Module):
         assert self.attn_model in ["dot", "general", "concat"]
         self.attn = Attn(self.attn_model, self.hidden_size)
 
-    def forward(self, input_seq, encoder_outputs):
+    def forward(self, input_seq, encoder_outputs_a, encoder_outputs_c=encoder_outputs_a):
         # Note: we run this one step at a time
 
         # Get the embedding of the current input word (last output word)
@@ -200,7 +233,7 @@ class LuongAttnDecoderRNN(nn.Module):
 
         # Calculate attention from current RNN state and all encoder outputs;
         # apply to encoder outputs to get weighted average
-        context, attn_weights = self.attn(rnn_output, encoder_outputs)
+        context, attn_weights = self.attn(rnn_output, encoder_outputs_a, encoder_outputs_c)
 
         # Attentional vector using the RNN hidden state and context vector
         # concatenated together (Luong eq. 5)
@@ -215,6 +248,7 @@ class LuongAttnDecoderRNN(nn.Module):
         # Return final output, hidden state, and attention weights (for visualization)
         #print("decoder output", output.shape)
         return output, attn_weights
+    
     
 class AttnRnnDecoder(nn.Module):
     def __init__(self, args, padding_idx, trg_vocab_size, max_sent_length):
