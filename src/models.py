@@ -157,10 +157,12 @@ class Attn(nn.Module):
             self.attn = nn.Linear(self.hidden_size * 2, hidden_size)
             self.v = nn.Parameter(torch.FloatTensor(1, hidden_size))
 
-    def forward(self, hidden, encoder_outputs_a, encoder_outputs_c=encoder_outputs_a):
+    def forward(self, hidden, encoder_outputs_a, encoder_outputs_c=None):
         '''
         Return 
             context_vector = size B x 1 x hidden_size'''
+        if encoder_outputs_c is None:
+            encoder_outputs_c = encoder_outputs_a
         # Create variable to store attention energies
         energy = self.score(hidden, encoder_outputs_a)
         score = F.softmax(energy, dim = 1).view(1, self.batch_size, -1)
@@ -219,8 +221,10 @@ class LuongAttnDecoderRNN(nn.Module):
         assert self.attn_model in ["dot", "general", "concat"]
         self.attn = Attn(self.attn_model, self.hidden_size)
 
-    def forward(self, input_seq, encoder_outputs_a, encoder_outputs_c=encoder_outputs_a):
+    def forward(self, input_seq, encoder_outputs_a, encoder_outputs_c=None):
         # Note: we run this one step at a time
+        if encoder_outputs_c is None:
+            encoder_outputs_c = encoder_outputs_a
 
         # Get the embedding of the current input word (last output word)
         batch_size = input_seq.size(0)
