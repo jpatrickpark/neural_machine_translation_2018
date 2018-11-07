@@ -15,7 +15,7 @@ def run(args):
     device = torch.device("cuda" if (not args.cpu) and torch.cuda.is_available() else "cpu")
     print("Using device", device)
     
-    train_data, val_data, test_data, src, trg = loader.load_chinese_english_data(args.data, args.njobs)
+    train_data, val_data, test_data, src, trg = loader.load_data(args)
     
     src_padding_idx = src.vocab.stoi['<pad>']
     trg_padding_idx = trg.vocab.stoi['<pad>']
@@ -195,14 +195,11 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
     
     
 def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, epoch_idx, train_data, val_data):
-    train_iter, val_iter = data.BucketIterator.splits(
-        (train_data, val_data), batch_size=args.batch_size
-    )
-    
     train_iter = data.BucketIterator(
         dataset=train_data, 
         batch_size=args.batch_size,
-        repeat=False
+        repeat=False,
+        sort_within_batch=True
     )
     
     val_iter = data.BucketIterator(
@@ -289,7 +286,7 @@ def rnn_encoder_rnn_attention_decoder_argparser():
     parser.add_argument("--dropout", help="Dropout Rate", type=float, default=0)
     parser.add_argument('--bidirectional', help="Use bidirectional RNN in encoder", action="store_true") # don't set this true in this model
     parser.add_argument('--cpu', help="Use cpu instead of gpu", action="store_true")
-    parser.add_argument("--data", help="Directory where data is stored", default='../data/neu2017/')
+    parser.add_argument("--data", help="Directory where data is stored", default='../data/iwslt-zh-en/')
     parser.add_argument("--rnn_type", help="Which rnn to use (rnn, lstm, gru)", default='gru')
     parser.add_argument("--num_encoder_layers", help="Number of rnn layers in encoder", type=int, default=1)
     parser.add_argument("--num_decoder_layers", help="Number of rnn layers in decoder", type=int, default=1)
@@ -299,6 +296,10 @@ def rnn_encoder_rnn_attention_decoder_argparser():
     parser.add_argument('--teacher_forcing', help="probability of performing teacher forcing", type=float,  default=0.5)
     parser.add_argument("--max_sentence_length", help="maximum sentence length", type=int, default=50)
     parser.add_argument("--attn_model", help="dot, general, or concat", default='general')
+    parser.add_argument('--split_chinese_into_characters', help="Split chinese into characters", action="store_true")
+    parser.add_argument("--min_freq", help="Vocabulary needs to be present at least this amount of time", type=int, default=3)
+    parser.add_argument("--max_vocab_size", help="At most n vocaburaries are kept in the model", type=int, default=100000)
+    parser.add_argument("--source_lang", help="Source language (vi, zh)", default="zh")
     return parser
 
 if __name__ == '__main__':
