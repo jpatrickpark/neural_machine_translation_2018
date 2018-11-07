@@ -10,6 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from collections import defaultdict
+from bleu_score import bleu
 
 def run(args):
     device = torch.device("cuda" if (not args.cpu) and torch.cuda.is_available() else "cpu")
@@ -230,7 +231,9 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
     decoder.eval()
     
     val_loss_list = []
+    val_bleu_list = []
     for i, val_batch in enumerate(iter(val_iter)):
+        #val_batch.trg: size N x B
         loss, translation_output = run_batch(
             "val",
             args,
@@ -242,6 +245,10 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
             val_batch,
             device
         )
+        #translation_output = indices, N x B
+        #todo: 1. check if trg.vocab.itos is pass in this function. 2.!reference! 
+        val_bleu = bleu(trg.vocab.itos, translation_output, val_reference)
+        val_bleu_list.append(bleu)
         val_loss_list.append(loss)
         if i % args.print_every == 0:
             print("val, epoch: {}, step: {}, average loss for current epoch: {}, batch loss: {}".format(

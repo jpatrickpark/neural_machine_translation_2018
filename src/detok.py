@@ -10,7 +10,7 @@ def detok(ind_input, ind2word):
     detok_output = []
     for i in range(ind_input.shape[1]):
         tok_trg = ind_input[:,i]
-        tok_trg = tok_trg[tok_trg!=1] #remove padding
+        tok_trg = tok_trg[(tok_trg>3) | (tok_trg==0)] #remove padding, SOS, EOS
         detok_str = " ".join(ind2word[tok_trg])
         detok_output.append(detok_str)
     return detok_output
