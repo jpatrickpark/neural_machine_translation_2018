@@ -121,9 +121,74 @@ def load_chinese_english_data(data_dir, njobs, split_chinese_into_characters=Fal
     print("English vocab size:", len(EN.vocab))
     
     return train, val, test, ZH, EN
+
+def tokenize_by_character(line):
+    line = line.replace(" ", "")
+    return(list(line))
+    
+
+def load_data(args):
+    '''
+    Loads the following files:
+        data_dir/train.cn, data_dir/train.en,
+        data_dir/val.cn, data_dir/val.en,
+        data_dir/test.cn, data_dir/test.en
+    '''
+
+    assert args.source_lang in ["vi", "zh"], "unsupported source language: {}".format(args.source_lang)
+    if args.source_lang != 'zh':
+        assert not args.split_chinese_into_characters, "Source lang is not chinese but split_chinese_into_characters is set to True"
+        
+    if args.split_chinese_into_characters:
+        SRC = data.Field(
+            tokenize=tokenize_by_character, 
+            init_token=config.SOS_TOKEN, 
+            eos_token=config.EOS_TOKEN
+        )
+    else:
+        SRC = data.Field(
+            tokenize=str.split, 
+            init_token=config.SOS_TOKEN, 
+            eos_token=config.EOS_TOKEN
+        )
+        
+    
+    EN = data.Field(
+        tokenize=str.split, 
+        init_token=config.SOS_TOKEN,
+        eos_token=config.EOS_TOKEN,
+        lower=True
+    )
+
+    if args.source_lang == 'zh':
+        train, val, test = myTranslationDataset.splits(
+            path=args.data, 
+            train='train', validation='dev', test='test', 
+            exts=('.tok.zh', '.tok.en'), fields=(SRC, EN)
+        )
+    else:
+        train, val, test = myTranslationDataset.splits(
+            path=args.data, 
+            train='train', validation='dev', test='test', 
+            exts=('.tok.vi', '.tok.en'), fields=(SRC, EN)
+        )
+
+    # TODO: fine-tune this
+    SRC.build_vocab(train.src, min_freq=args.min_freq, max_size=args.max_vocab_size)
+    EN.build_vocab(train.trg, min_freq=args.min_freq, max_size=args.max_vocab_size)
+
+    # Some debug statements.
+    # TODO: use logger to save this in file
+    print("Most common source vocabs:", SRC.vocab.freqs.most_common(10))
+    print("Source vocab size:", len(SRC.vocab))
+    print("Most common english vocabs:", EN.vocab.freqs.most_common(10))
+    print("English vocab size:", len(EN.vocab))
+    
+    return train, val, test, SRC, EN
     
 if __name__ == '__main__':
     # Test scripts
+    
     train, val, test, ZH, EN = load_chinese_english_data('../data/neu2017/', 4)
     
     train_iter, val_iter = data.BucketIterator.splits(
@@ -132,3 +197,4 @@ if __name__ == '__main__':
     batch = next(iter(train_iter))
     print(batch.src)
     print(batch.trg)
+    print(batch.idx)
