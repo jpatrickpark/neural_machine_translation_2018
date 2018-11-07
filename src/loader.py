@@ -9,6 +9,8 @@ import config
 
 from nltk.tokenize.toktok import ToktokTokenizer
 import io
+import os
+
 class myTranslationDataset(data.Dataset):
     """Defines a dataset for machine translation."""
 

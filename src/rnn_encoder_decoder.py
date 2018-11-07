@@ -58,14 +58,16 @@ def run(args):
     # TODO: save/load weights
     # TODO: early stopping
     loss_history = defaultdict(list)
+    bleu_history = defaultdict(list)
     for i in range(args.epoch):
         if args.test:
             test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data)
         else:
-            train_loss, val_loss = train_and_val(args, encoder, decoder, encoder_optimizer, 
-                                                 decoder_optimizer, loss_function, device, i, train_data, val_data)
+            train_loss, val_loss, val_bleu = train_and_val(args, encoder, decoder, encoder_optimizer, 
+                                                 decoder_optimizer, loss_function, device, i, train_data, val_data, trg)
             loss_history["train"].append(train_loss)
             loss_history["val"].append(val_loss)
+            bleu_history["val"].append(val_bleu)
             if early_stop(loss_history["val"], args.early_stopping):
                 print("Early stopped.")
                 break
@@ -177,7 +179,7 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
     return loss.item() / number_of_loss_calculation, translation_output
     
     
-def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, epoch_idx, train_data, val_data):
+def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, epoch_idx, train_data, val_data, trg):
     train_iter, val_iter = data.BucketIterator.splits(
         (train_data, val_data), batch_size=args.batch_size
     )
@@ -225,7 +227,7 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
         
     print("train done. epoch: {}, average loss for current epoch: {}, numbatch: {}, size of last batch: {}".format(
         epoch_idx, np.mean(train_loss_list), i+1, train_batch.src.shape[1]))
-    
+
     # turn off dropout
     encoder.eval()
     decoder.eval()
@@ -247,17 +249,20 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
         )
         #translation_output = indices, N x B
         #todo: 1. check if trg.vocab.itos is pass in this function. 2.!reference! 
+        val_reference = []
+        for each in val_batch.idx:
+            val_reference.append(" ".join(train_iter.dataset[each].trg))
         val_bleu = bleu(trg.vocab.itos, translation_output, val_reference)
-        val_bleu_list.append(bleu)
+        val_bleu_list.append(val_bleu)
         val_loss_list.append(loss)
         if i % args.print_every == 0:
-            print("val, epoch: {}, step: {}, average loss for current epoch: {}, batch loss: {}".format(
-                epoch_idx, i, np.mean(val_loss_list), loss))
+            print("val, epoch: {}, step: {}, average loss for current epoch: {}, batch loss: {}, average bleu for current epoch: {}, batch bleu: {}".format(
+                epoch_idx, i, np.mean(val_loss_list), loss, np.mean(val_bleu_list), val_bleu))
         
-    print("val done. epoch: {}, average loss for current epoch: {}".format(
-        epoch_idx, np.mean(val_loss_list)))
+    print("val done. epoch: {}, average loss for current epoch: {}, average bleu for current epoch: {}".format(
+        epoch_idx, np.mean(val_loss_list), np.mean(val_bleu_list)))
     
-    return np.mean(train_loss_list), np.mean(val_loss_list)
+    return np.mean(train_loss_list), np.mean(val_loss_list), np.mean(val_bleu_list)
         
 def test():
     pass
