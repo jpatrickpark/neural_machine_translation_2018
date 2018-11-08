@@ -115,19 +115,22 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
     loss = 0
     
     # TODO: it seems that currently batch size is always the same. Make sure to use the last batch
-    target_sequence_length, batch_size = batch.trg.shape
-    #print("This should be batch size:", batch_size) #
+    target_sequence_length, batch_size = batch.trg[0].shape
     
     encoder.random_init_hidden(device, batch_size)
     
     # Move batch.src and batch.trg to cuda
-    batch.src = batch.src.cuda()
-    batch.trg = batch.trg.cuda()
+    #batch.src[0] = batch.src[0].cuda()
+    #batch.src[1] = batch.src[1].cuda()
+    #batch.trg[0] = batch.trg[0].cuda()
+    #batch.trg[1] = batch.trg[1].cuda()
     
-    encoder(batch.src)
+    encoder(batch.src[0], batch.src[1])
     
     # This step is necessary to get the hidden state from encoder
-    decoder.hidden = encoder.hidden
+    # TODO: is this mechanism of getting hidden layer correct?
+    # Shouldn't it be last n layers, instead of first n layers?
+    decoder.hidden = encoder.hidden[:decoder.n_layers]
     
     
     # TEACHER FORCING
@@ -135,7 +138,7 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
     # nice to look, and should be fast
     number_of_loss_calculation = 0
     if phase == 'train' and np.random.random() < args.teacher_forcing:
-        logits = decoder(batch.trg)
+        logits = decoder(batch.trg[0])
         # get prediction
         # log_softmax with NLLLoss == CrossEntropyLoss with logits
         output = F.log_softmax(logits, dim=1)
@@ -147,14 +150,14 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
         # order of nested for loop is important!
         for j in range(batch_size):
             for i in range(target_sequence_length-1):
-                if batch.trg[i,j] == config.EOS_TOKEN:
+                if batch.trg[0][i,j] == config.EOS_TOKEN:
                     # we do not need to feed the last EOS token to the decoder. 
                     # we do not need to feed any padding token either. 
                     # move onto the next data in the batch.
                     break
                 # first output is what the decoder produced after seeing SOS token
                 # therefore, compare it with second target token
-                loss += loss_function(output[i,j,:].view(1,-1), batch.trg[i+1,j].view(1))
+                loss += loss_function(output[i,j,:].view(1,-1), batch.trg[0][i+1,j].view(1))
                 number_of_loss_calculation += 1
                 
     else:
@@ -178,10 +181,10 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
                     # get index of maximum probability word
                     max_index = output[0,j].max(0)[1]
                     decoder_input[0,j] = max_index
-                    loss += loss_function(output[0,j,:].view(1,-1), batch.trg[i+1,j].view(1))
+                    loss += loss_function(output[0,j,:].view(1,-1), batch.trg[0][i+1,j].view(1))
                     number_of_loss_calculation += 1
                 
-                    if max_index == config.EOS_TOKEN or batch.trg[i+1,j] == config.EOS_TOKEN: #?
+                    if max_index == config.EOS_TOKEN or batch.trg[0][i+1,j] == config.EOS_TOKEN: #?
                         # if EOS token, stop.
                         eos_encountered_list[j] = True
                     
@@ -214,7 +217,10 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
         dataset=train_data, 
         batch_size=args.batch_size,
         repeat=False,
-        sort_within_batch=True
+        sort_key=lambda x: len(x.src),
+        sort_within_batch=True,
+        device=device,
+        train=True
     )
     
     val_iter = data.BucketIterator(
@@ -225,8 +231,10 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
         #A key to use for sorting examples in order to batch together 
         # examples with similar lengths and minimize padding.
         sort=True,
-        sort_key=lambda x: data.interleave_keys(len(x.src), len(x.trg)),
-        repeat=False
+        sort_key=lambda x: len(x.src),
+        repeat=False,
+        sort_within_batch=True,
+        device=device
     )
 
     # turn on dropout
@@ -253,7 +261,7 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
                 epoch_idx, i, np.mean(train_loss_list), loss))
         
     print("train done. epoch: {}, average loss for current epoch: {}, numbatch: {}, size of last batch: {}".format(
-        epoch_idx, np.mean(train_loss_list), i+1, train_batch.src.shape[1]))
+        epoch_idx, np.mean(train_loss_list), i+1, train_batch.src[0].shape[1]))
 
     # turn off dropout
     encoder.eval()
@@ -309,18 +317,19 @@ def rnn_encoder_decoder_argparser():
     parser.add_argument("--hidden_size", help="Hidden size", type=int, default=256)
     parser.add_argument("--embedding_size", help="Embedding size", type=int, default=256)
     parser.add_argument("--print_every", help="How frequently print result", type=int, default=100)
-    parser.add_argument("--lr", help="Learning Rate", type=float, default=1e-02)
+    parser.add_argument("--lr", help="Learning Rate", type=float, default=1e-03)
     parser.add_argument("--dropout", help="Dropout Rate", type=float, default=0)
     parser.add_argument('--bidirectional', help="Use bidirectional RNN in encoder", action="store_true") # don't set this true in this model
     parser.add_argument('--cpu', help="Use cpu instead of gpu", action="store_true")
     parser.add_argument("--data", help="Directory where data is stored", default='../data/iwslt-zh-en/')
     parser.add_argument("--rnn_type", help="Which rnn to use (rnn, lstm, gru)", default='gru')
-    parser.add_argument("--num_encoder_layers", help="Number of rnn layers in encoder", type=int, default=1)
+    parser.add_argument("--num_encoder_layers", help="Number of rnn layers in encoder", type=int, default=1)    
+    parser.add_argument("--num_decoder_layers", help="Number of rnn layers in encoder", type=int, default=1)
     parser.add_argument("--early_stopping", help="Stop if validation does not improve", type=int, default=10)
     parser.add_argument('--l2_penalty', help="L2 pelnalty coefficient in optimizer", type=float,  default=1e-06) #1e-06
     parser.add_argument('--clip', help="clip coefficient in optimizer", type=float,  default=1)
     parser.add_argument('--teacher_forcing', help="probability of performing teacher forcing", type=float,  default=0.5)
-    parser.add_argument("--max_sentence_length", help="maximum sentence length", type=int, default=50)
+    parser.add_argument("--max_sentence_length", help="maximum sentence length", type=int, default=80)
     parser.add_argument('--split_chinese_into_characters', help="Split chinese into characters", action="store_true")
     parser.add_argument("--min_freq", help="Vocabulary needs to be present at least this amount of time", type=int, default=3)
     parser.add_argument("--max_vocab_size", help="At most n vocaburaries are kept in the model", type=int, default=100000)
