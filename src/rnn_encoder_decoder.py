@@ -11,6 +11,7 @@ import torch.nn.functional as F
 import numpy as np
 from collections import defaultdict
 from bleu_score import bleu
+from test_tube import Experiment, HyperOptArgumentParser, SlurmCluster
 
 def run(args):
     device = torch.device("cuda" if (not args.cpu) and torch.cuda.is_available() else "cpu")
@@ -268,7 +269,10 @@ def rnn_encoder_decoder_argparser():
     # TODO: set min max size for vocab
     # TODO: specify optimizer
     # TODO: set max length of sentences
-    parser = argparse.ArgumentParser(description='Run Tests')
+    
+    # parser = argparse.ArgumentParser(description='Run Tests')
+    parser = HyperOptArgumentParser(description='Run Tests', strategy='grid_search')
+    
     parser.add_argument('--test', help="Run test instead of training/validation", action="store_true")
     parser.add_argument("--njobs", help="Number of jobs to use when loading data", type=int, default=1)
     parser.add_argument("--epoch", help="Number of epoch to run", type=int, default=10000)
@@ -298,6 +302,7 @@ if __name__ == '__main__':
     parser = rnn_encoder_decoder_argparser()
     args = parser.parse_args()
     
+    exp = Experiment(name='rnn_encoder_decoder')
     run(args)
     
 
