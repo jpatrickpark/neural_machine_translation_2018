@@ -80,6 +80,7 @@ def run(args):
             loss_history["val"].append(val_loss)
             bleu_history["val"].append(val_bleu)
             
+            # update best models
             if val_bleu == np.max(bleu_history["val"]):
                 encoder_best = encoder
                 decoder_best = decoder
@@ -92,9 +93,10 @@ def run(args):
             if early_stop(loss_history["val"], args.early_stopping):
                 print("Early stopped.")
                 break
-                
-    torch.save(encoder_best.state_dict(), os.path.join(args.model_weights_path, 'encoder_weights.pickle'))
-    torch.save(decoder_best.state_dict(), os.path.join(args.model_weights_path, 'decoder_weights.pickle'))
+    
+    # save model weights of the best models
+    torch.save(encoder_best.state_dict(), os.path.join(args.model_weights_path, 'encoder_weights.pt'))
+    torch.save(decoder_best.state_dict(), os.path.join(args.model_weights_path, 'decoder_weights.pt'))
                 
 def early_stop(loss_history, early_stop_k):
     if len(loss_history) < early_stop_k:
