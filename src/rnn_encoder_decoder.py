@@ -12,6 +12,7 @@ import numpy as np
 from collections import defaultdict
 from bleu_score import bleu
 from test_tube import Experiment, HyperOptArgumentParser, SlurmCluster
+import os
 
 def run(args):
     device = torch.device("cuda" if (not args.cpu) and torch.cuda.is_available() else "cpu")
@@ -64,7 +65,7 @@ def run(args):
     # Initiate test-tube experiment object
     exp = Experiment(
         name='rnn_encoder_decoder',
-        save_dir=args.save_path,
+        save_dir=args.logs_path,
         autosave=True,
     )
     exp.argparse(args)
@@ -79,6 +80,11 @@ def run(args):
             loss_history["val"].append(val_loss)
             bleu_history["val"].append(val_bleu)
             
+            # update best models
+            if val_bleu == np.max(bleu_history["val"]):
+                encoder_best = encoder
+                decoder_best = decoder
+
             # add logs
             exp.log({'train epoch loss': train_loss})
             exp.log({'val epoch loss': val_loss})
@@ -87,6 +93,10 @@ def run(args):
             if early_stop(loss_history["val"], args.early_stopping):
                 print("Early stopped.")
                 break
+    
+    # save model weights of the best models
+    torch.save(encoder_best.state_dict(), os.path.join(args.model_weights_path, 'encoder_weights.pt'))
+    torch.save(decoder_best.state_dict(), os.path.join(args.model_weights_path, 'decoder_weights.pt'))
                 
 def early_stop(loss_history, early_stop_k):
     if len(loss_history) < early_stop_k:
@@ -315,7 +325,8 @@ def rnn_encoder_decoder_argparser():
     parser.add_argument("--min_freq", help="Vocabulary needs to be present at least this amount of time", type=int, default=3)
     parser.add_argument("--max_vocab_size", help="At most n vocaburaries are kept in the model", type=int, default=100000)
     parser.add_argument("--source_lang", help="Source language (vi, zh)", default="zh")
-    parser.add_argument("--save_path", help="Path to save training logs", type=str, default="../training_logs/")
+    parser.add_argument("--logs_path", help="Path to save training logs", type=str, default="../training_logs/")
+    parser.add_argument("--model_weights_path", help="Path to save best model weights", type=str, default="../model_weights/")
     return parser
 
 if __name__ == '__main__':
