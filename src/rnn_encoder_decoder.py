@@ -11,6 +11,7 @@ import torch.nn.functional as F
 import numpy as np
 from collections import defaultdict
 from bleu_score import bleu
+from test_tube import Experiment, HyperOptArgumentParser, SlurmCluster
 
 def run(args):
     device = torch.device("cuda" if (not args.cpu) and torch.cuda.is_available() else "cpu")
@@ -59,6 +60,15 @@ def run(args):
     # TODO: early stopping
     loss_history = defaultdict(list)
     bleu_history = defaultdict(list)
+    
+    # Initiate test-tube experiment object
+    exp = Experiment(
+        name='rnn_encoder_decoder',
+        save_dir=args.save_path,
+        autosave=True,
+    )
+    exp.argparse(args)
+
     for i in range(args.epoch):
         if args.test:
             test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data)
@@ -68,6 +78,12 @@ def run(args):
             loss_history["train"].append(train_loss)
             loss_history["val"].append(val_loss)
             bleu_history["val"].append(val_bleu)
+            
+            # add logs
+            exp.log({'train epoch loss': train_loss})
+            exp.log({'val epoch loss': val_loss})
+            exp.log({'val epoch bleu': val_bleu})
+            
             if early_stop(loss_history["val"], args.early_stopping):
                 print("Early stopped.")
                 break
@@ -93,6 +109,10 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
     #print("This should be batch size:", batch_size) #
     
     encoder.random_init_hidden(device, batch_size)
+    
+    # Move batch.src and batch.trg to cuda
+    batch.src = batch.src.cuda()
+    batch.trg = batch.trg.cuda()
     
     encoder(batch.src)
     
@@ -268,7 +288,10 @@ def rnn_encoder_decoder_argparser():
     # TODO: set min max size for vocab
     # TODO: specify optimizer
     # TODO: set max length of sentences
-    parser = argparse.ArgumentParser(description='Run Tests')
+    
+    # parser = argparse.ArgumentParser(description='Run Tests')
+    parser = HyperOptArgumentParser(description='Run Tests', strategy='grid_search')
+    
     parser.add_argument('--test', help="Run test instead of training/validation", action="store_true")
     parser.add_argument("--njobs", help="Number of jobs to use when loading data", type=int, default=1)
     parser.add_argument("--epoch", help="Number of epoch to run", type=int, default=10000)
@@ -292,12 +315,12 @@ def rnn_encoder_decoder_argparser():
     parser.add_argument("--min_freq", help="Vocabulary needs to be present at least this amount of time", type=int, default=3)
     parser.add_argument("--max_vocab_size", help="At most n vocaburaries are kept in the model", type=int, default=100000)
     parser.add_argument("--source_lang", help="Source language (vi, zh)", default="zh")
+    parser.add_argument("--save_path", help="Path to save training logs", type=str, default="../training_logs/")
     return parser
 
 if __name__ == '__main__':
     parser = rnn_encoder_decoder_argparser()
     args = parser.parse_args()
-    
     run(args)
     
 
