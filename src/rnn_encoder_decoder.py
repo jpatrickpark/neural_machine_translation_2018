@@ -334,7 +334,7 @@ def rnn_encoder_decoder_argparser():
     parser.add_argument("--num_encoder_layers", help="Number of rnn layers in encoder", type=int, default=1)    
     parser.add_argument("--num_decoder_layers", help="Number of rnn layers in encoder", type=int, default=1)
     parser.add_argument("--early_stopping", help="Stop if validation does not improve", type=int, default=10)
-    parser.add_argument('--l2_penalty', help="L2 pelnalty coefficient in optimizer", type=float,  default=1e-06) #1e-06
+    parser.add_argument('--l2_penalty', help="L2 pelnalty coefficient in optimizer", type=float,  default=0) #1e-06
     parser.add_argument('--clip', help="clip coefficient in optimizer", type=float,  default=1)
     parser.add_argument('--teacher_forcing', help="probability of performing teacher forcing", type=float,  default=0.5)
     parser.add_argument("--max_sentence_length", help="maximum sentence length", type=int, default=80)
