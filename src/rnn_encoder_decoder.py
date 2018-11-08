@@ -13,6 +13,7 @@ from collections import defaultdict
 from bleu_score import bleu
 from test_tube import Experiment, HyperOptArgumentParser, SlurmCluster
 import os
+import pathlib
 
 def run(args):
     device = torch.device("cuda" if (not args.cpu) and torch.cuda.is_available() else "cpu")
@@ -70,20 +71,29 @@ def run(args):
     )
     exp.argparse(args)
 
+    model_path = os.path.join(args.model_weights_path, exp.name)
+    model_path = os.path.join(model_path, str(exp.version))
+    pathlib.Path(model_path).mkdir(parents=True, exist_ok=True)
     for i in range(args.epoch):
         if args.test:
             test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data)
         else:
-            train_loss, val_loss, val_bleu = train_and_val(args, encoder, decoder, encoder_optimizer, 
-                                                 decoder_optimizer, loss_function, device, i, train_data, val_data, trg)
+            train_loss, val_loss, val_bleu = train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, train_data, val_data, trg)
             loss_history["train"].append(train_loss)
             loss_history["val"].append(val_loss)
             bleu_history["val"].append(val_bleu)
             
             # update best models
             if val_bleu == np.max(bleu_history["val"]):
-                encoder_best = encoder
-                decoder_best = decoder
+                # save model weights of the best models
+                torch.save(encoder.state_dict(), os.path.join(model_path, 'encoder_weights.pt'))
+                torch.save(decoder.state_dict(), os.path.join(model_path, 'decoder_weights.pt'))
+            if args.save_all_epoch:
+                model_path_current_epoch = os.path.join(model_path, str(i))
+                pathlib.Path(model_path_current_epoch).mkdir(parents=True, exist_ok=True)
+                torch.save(encoder.state_dict(), os.path.join(model_path_current_epoch, 'encoder_weights.pt'))
+                torch.save(decoder.state_dict(), os.path.join(model_path_current_epoch, 'decoder_weights.pt'))
+                
 
             # add logs
             exp.log({'train epoch loss': train_loss})
@@ -94,9 +104,7 @@ def run(args):
                 print("Early stopped.")
                 break
     
-    # save model weights of the best models
-    torch.save(encoder_best.state_dict(), os.path.join(args.model_weights_path, 'encoder_weights.pt'))
-    torch.save(decoder_best.state_dict(), os.path.join(args.model_weights_path, 'decoder_weights.pt'))
+
                 
 def early_stop(loss_history, early_stop_k):
     if len(loss_history) < early_stop_k:
@@ -326,7 +334,7 @@ def rnn_encoder_decoder_argparser():
     parser.add_argument("--num_encoder_layers", help="Number of rnn layers in encoder", type=int, default=1)    
     parser.add_argument("--num_decoder_layers", help="Number of rnn layers in encoder", type=int, default=1)
     parser.add_argument("--early_stopping", help="Stop if validation does not improve", type=int, default=10)
-    parser.add_argument('--l2_penalty', help="L2 pelnalty coefficient in optimizer", type=float,  default=1e-06) #1e-06
+    parser.add_argument('--l2_penalty', help="L2 pelnalty coefficient in optimizer", type=float,  default=0) #1e-06
     parser.add_argument('--clip', help="clip coefficient in optimizer", type=float,  default=1)
     parser.add_argument('--teacher_forcing', help="probability of performing teacher forcing", type=float,  default=0.5)
     parser.add_argument("--max_sentence_length", help="maximum sentence length", type=int, default=80)
@@ -336,6 +344,7 @@ def rnn_encoder_decoder_argparser():
     parser.add_argument("--source_lang", help="Source language (vi, zh)", default="zh")
     parser.add_argument("--logs_path", help="Path to save training logs", type=str, default="../training_logs/")
     parser.add_argument("--model_weights_path", help="Path to save best model weights", type=str, default="../model_weights/")
+    parser.add_argument('--save_all_epoch', help="save all epoch", action="store_true")
     return parser
 
 if __name__ == '__main__':
