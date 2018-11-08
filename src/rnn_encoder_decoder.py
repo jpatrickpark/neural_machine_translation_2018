@@ -74,6 +74,7 @@ def run(args):
     model_path = os.path.join(args.model_weights_path, exp.name)
     model_path = os.path.join(model_path, str(exp.version))
     pathlib.Path(model_path).mkdir(parents=True, exist_ok=True)
+    print(model_path)
     for i in range(args.epoch):
         if args.test:
             test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data)
@@ -96,9 +97,9 @@ def run(args):
                 
 
             # add logs
-            exp.log({'train epoch loss': train_loss})
-            exp.log({'val epoch loss': val_loss})
-            exp.log({'val epoch bleu': val_bleu})
+            exp.log({'train epoch loss': train_loss,
+                    'val epoch loss': val_loss, 
+                    'val epoch bleu': val_bleu})
             
             if early_stop(loss_history["val"], args.early_stopping):
                 print("Early stopped.")
