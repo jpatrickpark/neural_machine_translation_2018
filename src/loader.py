@@ -10,6 +10,8 @@ import config
 from nltk.tokenize.toktok import ToktokTokenizer
 import io
 import os
+import string
+from functools import partial
 
 class myTranslationDataset(data.Dataset):
     """Defines a dataset for machine translation."""
@@ -127,6 +129,10 @@ def tokenize_by_character(line):
     return(list(line))
     
 
+def split_after_removing_punctuations(exclude, line):
+    token_list = str.split(line)
+    return [tok for tok in token_list if tok not in exclude]
+
 def load_data(args):
     '''
     Loads the following files:
@@ -139,25 +145,31 @@ def load_data(args):
     if args.source_lang != 'zh':
         assert not args.split_chinese_into_characters, "Source lang is not chinese but split_chinese_into_characters is set to True"
         
+    exclude = set(string.punctuation)
+    tokenize_without_punctuations = partial(split_after_removing_punctuations, exclude)
+    
     if args.split_chinese_into_characters:
         SRC = data.Field(
             tokenize=tokenize_by_character, 
             init_token=config.SOS_TOKEN, 
-            eos_token=config.EOS_TOKEN
+            eos_token=config.EOS_TOKEN,
+            include_lengths=True
         )
     else:
         SRC = data.Field(
-            tokenize=str.split, 
+            tokenize=tokenize_without_punctuations, 
             init_token=config.SOS_TOKEN, 
-            eos_token=config.EOS_TOKEN
+            eos_token=config.EOS_TOKEN,
+            include_lengths=True
         )
         
     
     EN = data.Field(
-        tokenize=str.split, 
+        tokenize=tokenize_without_punctuations, 
         init_token=config.SOS_TOKEN,
         eos_token=config.EOS_TOKEN,
-        lower=True
+        lower=True,
+        include_lengths=True
     )
 
     if args.source_lang == 'zh':

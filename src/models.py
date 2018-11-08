@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
 import config
+from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 
 class RnnEncoder(nn.Module):
     
@@ -27,16 +28,19 @@ class RnnEncoder(nn.Module):
             bidirectional = args.bidirectional
         )
             
-    def forward(self, x):
+    def forward(self, x, lengths):
         #print("src shape", x.shape) # torch.Size([32, 16])
         # dimenstion of x: (seq_len, batch, input_size)
         x = self.embedding(x)
         #print("embedded shape", x.shape) # torch.Size([32, 16, 256])
         # dimension of x after embedding: (seq_len, batch, embedding_size)
+        
+        x = pack_padded_sequence(x, lengths)
         if self.rnn_type == 'lstm':
             x, (self.hidden, self.cell_state) = self.rnn(x, (self.hidden, self.cell_state))
         else:
             x, self.hidden = self.rnn(x, self.hidden)
+        x, output_lengths = pad_packed_sequence(x)
         #print("after encoder shape", x.shape) # torch.Size([32, 16, 128])
         # dimension of x after encoder: (seq_len, batch, hidden_size)
         #print("encoder hidden shape", self.hidden.shape) # torch.Size([1, 16, 128])
@@ -108,6 +112,7 @@ class RnnDecoder(nn.Module):
     def __init__(self, args, padding_idx, trg_vocab_size):
         super(RnnDecoder, self).__init__()
         self.args = args
+        self.n_layers = args.num_decoder_layers
 
         self.embedding = nn.Embedding(
             trg_vocab_size, 
@@ -119,7 +124,8 @@ class RnnDecoder(nn.Module):
         self.rnn = config.RNN_TYPES[self.args.rnn_type](
             input_size = args.embedding_size, 
             hidden_size = args.hidden_size,
-            dropout = args.dropout
+            dropout = args.dropout,
+            num_layers = args.num_decoder_layers,
         )
         
         self.linear = nn.Linear(args.hidden_size, trg_vocab_size)
