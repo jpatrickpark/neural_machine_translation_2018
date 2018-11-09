@@ -113,7 +113,8 @@ class RnnDecoder(nn.Module):
         super(RnnDecoder, self).__init__()
         self.args = args
         self.n_layers = args.num_decoder_layers
-
+        self.relu = args.relu
+        
         self.embedding = nn.Embedding(
             trg_vocab_size, 
             args.embedding_size, 
@@ -138,6 +139,8 @@ class RnnDecoder(nn.Module):
         # thus we need to set maximum sequence length
         # if we pass the entire training data here, then it's using teacher forcing.
         # TODO: Do we use relu here?
+        if self.relu:
+            x = F.relu(x)
         x, self.hidden = self.rnn(x, self.hidden) # this is actually using teacher forcing
         #print("after decoder shape", x.shape) # torch.Size([40, 16, 128])
         #print("decoder hidden shape", self.hidden.shape) # torch.Size([1, 16, 128])

@@ -11,7 +11,17 @@ def detok(ind_input, ind2word):
     for i in range(ind_input.shape[1]):
         tok_trg = ind_input[:,i]
         tok_trg = tok_trg[(tok_trg>3) | (tok_trg==0)] #remove padding, SOS, EOS
-        detok_str = " ".join(ind2word[tok_trg])
+        items_list = ind2word[tok_trg]
+        
+        if len(items_list) == 0:
+            # not sure if this case ever happens yet.
+            detok_str = ""
+        elif isinstance(items_list, str):
+            # sometimes items_list is just one string. return it.
+            detok_str = items_list
+        else:
+            # if it is multi-word list, then join them as a string
+            detok_str = " ".join(items_list)
         detok_output.append(detok_str)
     return detok_output
         
