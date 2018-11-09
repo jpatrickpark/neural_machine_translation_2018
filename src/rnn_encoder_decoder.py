@@ -155,7 +155,7 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
         logits = decoder(batch.trg[0])
         # get prediction
         # log_softmax with NLLLoss == CrossEntropyLoss with logits
-        output = F.log_softmax(logits, dim=1)
+        output = F.log_softmax(logits, dim=2) 
 
         # Now, loop through output and calculate loss
         # be careful not to compare SOS_token with first non_sos token
@@ -187,13 +187,13 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
         while ((i < args.max_sentence_length) and (i+1 < target_sequence_length) and (sum(eos_encountered_list) < batch_size)): # fix off-by-1 error, if any
             
             logits = decoder(decoder_input)
-            output = F.log_softmax(logits, dim=1)
+            output = F.log_softmax(logits, dim=2) 
             decoder_input = torch.tensor([config.PAD_TOKEN]*batch_size, device=device, requires_grad=False).view(1,-1)
             for j in range(batch_size):   
                 
                 if not eos_encountered_list[j]:
                     # get index of maximum probability word
-                    max_index = output[0,j].max(0)[1]
+                    max_index = output[0,j].max(0)[1].detach()
                     decoder_input[0,j] = max_index
                     loss += loss_function(output[0,j,:].view(1,-1), batch.trg[0][i+1,j].view(1))
                     number_of_loss_calculation += 1
@@ -408,6 +408,7 @@ def rnn_encoder_decoder_argparser():
     parser.add_argument("--logs_path", help="Path to save training logs", type=str, default="../training_logs/")
     parser.add_argument("--model_weights_path", help="Path to save best model weights", type=str, default="../model_weights/")
     parser.add_argument('--save_all_epoch', help="save all epoch", action="store_true")
+    parser.add_argument('--relu', help="use relu in decoder after embedding", action="store_true")
     return parser
 
 if __name__ == '__main__':
