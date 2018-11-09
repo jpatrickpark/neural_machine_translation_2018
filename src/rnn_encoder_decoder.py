@@ -335,6 +335,7 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
     test_loss_list = []
     test_bleu_list = []
     test_reference_list, translation_output_list = [], []
+    test_source_list = []
     for i, test_batch in enumerate(iter(test_iter)):
         #val_batch.trg: size N x B
         loss, translation_output = run_batch(
@@ -351,11 +352,14 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
         #translation_output = indices, N x B
         #todo: 1. check if trg.vocab.itos is pass in this function. 2.!reference! 
         test_reference = []
+        test_source = []
         for each in test_batch.idx:
             test_reference.append(" ".join(test_iter.dataset[each].trg))
+            test_source.append(" ".join(test_iter.dataset[each].src))
         test_bleu = bleu(trg.vocab.itos, translation_output, test_reference)
         test_reference_list.append(test_reference)
         translation_output_list.append(detok(translation_output, np.array(trg.vocab.itos)))
+        test_source_list.append(test_source)
         test_bleu_list.append(test_bleu)
         test_loss_list.append(loss)
         if i % args.print_every == 0:
@@ -365,7 +369,7 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
     print("test done. average loss for current epoch: {}, average bleu for current epoch: {}".format(
         np.mean(test_loss_list), np.mean(test_bleu_list)))
     
-    return np.mean(test_loss_list), np.mean(test_bleu_list), test_reference_list, translation_output_list
+    return np.mean(test_loss_list), np.mean(test_bleu_list), test_source_list, test_reference_list, translation_output_list
 
 
 def rnn_encoder_decoder_argparser():
