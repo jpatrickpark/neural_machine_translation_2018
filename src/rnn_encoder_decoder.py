@@ -64,20 +64,21 @@ def run(args):
     bleu_history = defaultdict(list)
     
     # Initiate test-tube experiment object
-    exp = Experiment(
-        name=args.name,
-        save_dir=args.logs_path,
-        autosave=True,
-    )
-    exp.argparse(args)
+    if not args.test:
+        exp = Experiment(
+            name=args.name,
+            save_dir=args.logs_path,
+            autosave=True,
+        )
+        exp.argparse(args)
 
-    model_path = os.path.join(args.model_weights_path, exp.name)
-    model_path = os.path.join(model_path, str(exp.version))
-    pathlib.Path(model_path).mkdir(parents=True, exist_ok=True)
-    print(model_path)
+        model_path = os.path.join(args.model_weights_path, exp.name)
+        model_path = os.path.join(model_path, str(exp.version))
+        pathlib.Path(model_path).mkdir(parents=True, exist_ok=True)
+        print(model_path)
     for i in range(args.epoch):
         if args.test:
-            test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data)
+            test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data, trg)
         else:
             train_loss, val_loss, val_bleu = train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, train_data, val_data, trg)
             loss_history["train"].append(train_loss)
@@ -295,7 +296,7 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
         #todo: 1. check if trg.vocab.itos is pass in this function. 2.!reference! 
         val_reference = []
         for each in val_batch.idx:
-            val_reference.append(" ".join(train_iter.dataset[each].trg))
+            val_reference.append(" ".join(val_iter.dataset[each].trg))
         val_bleu = bleu(trg.vocab.itos, translation_output, val_reference)
         val_bleu_list.append(val_bleu)
         val_loss_list.append(loss)
@@ -308,8 +309,57 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
     
     return np.mean(train_loss_list), np.mean(val_loss_list), np.mean(val_bleu_list)
         
-def test():
-    pass
+def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data, trg):
+    test_iter = data.BucketIterator(
+        dataset=test_data, 
+        batch_size=args.batch_size,
+        train=False,
+        shuffle=False,
+        #A key to use for sorting examples in order to batch together 
+        # examples with similar lengths and minimize padding.
+        sort=True,
+        sort_key=lambda x: len(x.src),
+        repeat=False,
+        sort_within_batch=True,
+        device=device
+    )
+
+    # turn off dropout
+    encoder.eval()
+    decoder.eval()
+    
+    test_loss_list = []
+    test_bleu_list = []
+    for i, val_batch in enumerate(iter(val_iter)):
+        #val_batch.trg: size N x B
+        loss, translation_output = run_batch(
+            "test",
+            args,
+            encoder,
+            decoder, 
+            encoder_optimizer, 
+            decoder_optimizer, 
+            loss_function,
+            val_batch,
+            device
+        )
+        #translation_output = indices, N x B
+        #todo: 1. check if trg.vocab.itos is pass in this function. 2.!reference! 
+        test_reference = []
+        for each in test_batch.idx:
+            test_reference.append(" ".join(test_iter.dataset[each].trg))
+        test_bleu = bleu(trg.vocab.itos, translation_output, test_reference)
+        test_bleu_list.append(test_bleu)
+        test_loss_list.append(loss)
+        if i % args.print_every == 0:
+            print("test, epoch: {}, step: {}, average loss for current epoch: {}, batch loss: {}, average bleu for current epoch: {}, batch bleu: {}".format(
+                epoch_idx, i, np.mean(test_loss_list), loss, np.mean(test_bleu_list), test_bleu))
+        
+    print("test done. epoch: {}, average loss for current epoch: {}, average bleu for current epoch: {}".format(
+        epoch_idx, np.mean(test_loss_list), np.mean(test_bleu_list)))
+    
+    return np.mean(train_loss_list), np.mean(val_loss_list), np.mean(val_bleu_list)
+
 
 def rnn_encoder_decoder_argparser():
     # TODO: set min max size for vocab
@@ -339,7 +389,7 @@ def rnn_encoder_decoder_argparser():
     parser.add_argument('--l2_penalty', help="L2 pelnalty coefficient in optimizer", type=float,  default=0) #1e-06
     parser.add_argument('--clip', help="clip coefficient in optimizer", type=float,  default=1)
     parser.add_argument('--teacher_forcing', help="probability of performing teacher forcing", type=float,  default=0.5)
-    parser.add_argument("--max_sentence_length", help="maximum sentence length", type=int, default=80)
+    parser.add_argument("--max_sentence_length", help="maximum sentence length", type=int, default=50)
     parser.add_argument('--split_chinese_into_characters', help="Split chinese into characters", action="store_true")
     parser.add_argument("--min_freq", help="Vocabulary needs to be present at least this amount of time", type=int, default=3)
     parser.add_argument("--max_vocab_size", help="At most n vocaburaries are kept in the model", type=int, default=100000)
