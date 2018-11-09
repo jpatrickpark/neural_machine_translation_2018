@@ -95,14 +95,16 @@ def load_chinese_english_data(data_dir, njobs, split_chinese_into_characters=Fal
     ZH = data.Field(
         tokenize=chinese_tokenizer, 
         init_token=config.SOS_TOKEN, 
-        eos_token=config.EOS_TOKEN
+        eos_token=config.EOS_TOKEN,
+        fix_length=args.max_sentence_length
     )
     
     EN = data.Field(
         tokenize=toktok.tokenize, 
         init_token=config.SOS_TOKEN,
         eos_token=config.EOS_TOKEN,
-        lower=True
+        lower=True,
+        fix_length=args.max_sentence_length
     )
 
     train, val, test = myTranslationDataset.splits(
