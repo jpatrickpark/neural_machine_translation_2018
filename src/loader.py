@@ -81,10 +81,7 @@ def chinese_tokenizer(line):
 
 def load_chinese_english_data(data_dir, njobs, split_chinese_into_characters=False):
     '''
-    Loads the following files:
-        data_dir/train.cn, data_dir/train.en,
-        data_dir/val.cn, data_dir/val.en,
-        data_dir/test.cn, data_dir/test.en
+    DEPRECATED
     '''
     toktok = ToktokTokenizer()
 
@@ -155,14 +152,17 @@ def load_data(args):
             tokenize=tokenize_by_character, 
             init_token=config.SOS_TOKEN, 
             eos_token=config.EOS_TOKEN,
-            include_lengths=True
+            include_lengths=True,
+            fix_length=args.max_sentence_length
         )
     else:
+        #TODO: do we need to tokenize vi and zh differently?
         SRC = data.Field(
             tokenize=tokenize_without_punctuations, 
             init_token=config.SOS_TOKEN, 
             eos_token=config.EOS_TOKEN,
-            include_lengths=True
+            include_lengths=True,
+            fix_length=args.max_sentence_length
         )
         
     
@@ -171,7 +171,8 @@ def load_data(args):
         init_token=config.SOS_TOKEN,
         eos_token=config.EOS_TOKEN,
         lower=True,
-        include_lengths=True
+        include_lengths=True,
+        fix_length=args.max_sentence_length
     )
 
     if args.source_lang == 'zh':
