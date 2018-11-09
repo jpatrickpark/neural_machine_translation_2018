@@ -14,6 +14,7 @@ from bleu_score import bleu
 from test_tube import Experiment, HyperOptArgumentParser, SlurmCluster
 import os
 import pathlib
+from detok import detok
 
 def run(args):
     device = torch.device("cuda" if (not args.cpu) and torch.cuda.is_available() else "cpu")
@@ -76,10 +77,13 @@ def run(args):
         model_path = os.path.join(model_path, str(exp.version))
         pathlib.Path(model_path).mkdir(parents=True, exist_ok=True)
         print(model_path)
-    for i in range(args.epoch):
-        if args.test:
-            test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data, trg)
-        else:
+    
+    if args.test:
+        encoder.load_state_dict(torch.load(os.path.join(args.model_weights_path, 'encoder_weights.pt')))
+        decoder.load_state_dict(torch.load(os.path.join(args.model_weights_path, 'decoder_weights.pt')))
+        return test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data, trg)
+    else:
+        for i in range(args.epoch):
             train_loss, val_loss, val_bleu = train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, train_data, val_data, trg)
             loss_history["train"].append(train_loss)
             loss_history["val"].append(val_loss)
@@ -330,7 +334,8 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
     
     test_loss_list = []
     test_bleu_list = []
-    for i, val_batch in enumerate(iter(val_iter)):
+    test_reference_list, translation_output_list = [], []
+    for i, test_batch in enumerate(iter(test_iter)):
         #val_batch.trg: size N x B
         loss, translation_output = run_batch(
             "test",
@@ -340,7 +345,7 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
             encoder_optimizer, 
             decoder_optimizer, 
             loss_function,
-            val_batch,
+            test_batch,
             device
         )
         #translation_output = indices, N x B
@@ -349,16 +354,18 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
         for each in test_batch.idx:
             test_reference.append(" ".join(test_iter.dataset[each].trg))
         test_bleu = bleu(trg.vocab.itos, translation_output, test_reference)
+        test_reference_list.append(test_reference)
+        translation_output_list.append(detok(translation_output, np.array(trg.vocab.itos)))
         test_bleu_list.append(test_bleu)
         test_loss_list.append(loss)
         if i % args.print_every == 0:
-            print("test, epoch: {}, step: {}, average loss for current epoch: {}, batch loss: {}, average bleu for current epoch: {}, batch bleu: {}".format(
-                epoch_idx, i, np.mean(test_loss_list), loss, np.mean(test_bleu_list), test_bleu))
+            print("test, step: {}, average loss for current epoch: {}, batch loss: {}, average bleu for current epoch: {}, batch bleu: {}".format(
+                i, np.mean(test_loss_list), loss, np.mean(test_bleu_list), test_bleu))
         
-    print("test done. epoch: {}, average loss for current epoch: {}, average bleu for current epoch: {}".format(
-        epoch_idx, np.mean(test_loss_list), np.mean(test_bleu_list)))
+    print("test done. average loss for current epoch: {}, average bleu for current epoch: {}".format(
+        np.mean(test_loss_list), np.mean(test_bleu_list)))
     
-    return np.mean(train_loss_list), np.mean(val_loss_list), np.mean(val_bleu_list)
+    return np.mean(test_loss_list), np.mean(test_bleu_list), test_reference_list, translation_output_list
 
 
 def rnn_encoder_decoder_argparser():
