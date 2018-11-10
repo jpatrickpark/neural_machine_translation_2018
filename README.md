@@ -14,7 +14,7 @@ args.num_encoder_layers = 2
 args.num_decoder_layers = 2
 args.test = True
 args.model_weights_path = '../model_weights/short/3'
-loss, bleu, test_source_list, test_reference_list, translation_output_list = rnn_encoder_decoder.run(args)
+loss, bleu, test_source_list, test_reference_list, translation_output_list, attention_list = rnn_encoder_decoder.run(args)
 
 for i in len(test_source_list):
   for triplet in zip(test_source_list[i], test_reference_list[i], translation_output_list[i]):
