@@ -39,7 +39,12 @@ def run(args):
     trg_vocab_size = len(trg.vocab)
     
     encoder = models.RnnEncoder(args, src_padding_idx, src_vocab_size).to(device)
-    decoder = models.RnnDecoder(args, trg_padding_idx, trg_vocab_size).to(device)
+    if args.attention:
+        assert args.bidirectional, "if using attention model, bidirectional must be true"
+        decoder = models.LuongAttnDecoderRNN(args, trg_padding_idx, trg_vocab_size).to(device)
+    else:
+        assert not args.bidirectional, "if not using attention model, bidirectional must be false"
+        decoder = models.RnnDecoder(args, trg_padding_idx, trg_vocab_size).to(device)
     
     # initialize weights using gaussian with 0 mean and 0.01 std, just like the paper said
     # TODO: Better initialization. Xavier?
@@ -133,13 +138,7 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
     
     encoder.random_init_hidden(device, batch_size)
     
-    # Move batch.src and batch.trg to cuda
-    #batch.src[0] = batch.src[0].cuda()
-    #batch.src[1] = batch.src[1].cuda()
-    #batch.trg[0] = batch.trg[0].cuda()
-    #batch.trg[1] = batch.trg[1].cuda()
-    
-    encoder(batch.src[0], batch.src[1])
+    encoder_outputs = encoder(batch.src[0], batch.src[1])
     
     # This step is necessary to get the hidden state from encoder
     # TODO: is this mechanism of getting hidden layer correct?
@@ -225,8 +224,130 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
         
     return loss.item() / number_of_loss_calculation, translation_output
     
+def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, batch, device):
+
+    assert phase in ("train", "val", "test"), "invalid phase"
+    
+    if phase == "train":
+        encoder_optimizer.zero_grad()
+        decoder_optimizer.zero_grad()
+    
+    loss = 0
+    
+    # TODO: it seems that currently batch size is always the same. Make sure to use the last batch
+    target_sequence_length, batch_size = batch.trg[0].shape
+    #print("This should be batch size:", batch_size) #
+    
+    encoder.random_init_hidden(device, batch_size)
+    
+    encoder_outputs = encoder(batch.src[0], batch.src[1])
+    
+    # This step is necessary to get the hidden state from encoder
+    decoder.hidden = encoder.hidden[:decoder.n_layers] # Use last (forward) hidden state from encoder #TODO: verify
+    
+    number_of_loss_calculation = 0
+
+    # TEACHER FORCING
+    # Feed all target sentences at once instead of reusing output as input
+    # nice to look, and should be fast
+    if phase == 'train' and np.random.random() < args.teacher_forcing:
+        # this is needed when we are not using teacher forcing
+        # To feed output of the decoder (the word with highest prob) into itself, has to use for loop, will be slower (is there faster alternative?)
+        translated_tokens_list = []
+        decoder_input = batch.trg[0][0,:]
+        translated_tokens_list.append(decoder_input.unsqueeze(0))
+        eos_encountered_list = [False]*batch_size
+        i = 0
+        
+        # TODO: Even though the logic might be correct, the speed is extremely slow.
+        while ((i < args.max_sentence_length) and (i+1 < target_sequence_length)): # fix off-by-1 error, if any
+            
+            #logits = decoder(decoder_input)
+            
+            logits, decoder_attn = decoder(
+                decoder_input, encoder_outputs
+            )
+            #loss += loss_function(decoder_output, batch.trg[i+1])
+            #number_of_loss_calculation += 1
+            logits = logits.unsqueeze(0)
+            output = F.log_softmax(logits, dim=2)
+            decoder_input = batch.trg[0][i+1,:]#torch.tensor([config.PAD_TOKEN]*batch_size, device=device, requires_grad=False)#.view(1,-1) # take care of different input shape
+            for j in range(batch_size):   
+                
+                if not eos_encountered_list[j]:
+                    # get index of maximum probability word
+                    loss += loss_function(output[0,j,:].view(1,-1), batch.trg[0][i+1,j].view(1))
+                    number_of_loss_calculation += 1
+                
+                    if batch.trg[0][i+1,j] == config.EOS_TOKEN: #?
+                        # if EOS token, stop.
+                        eos_encountered_list[j] = True
+                    
+            
+            translated_tokens_list.append(decoder_input.unsqueeze(0))
+            i += 1
+    else:
+        # this is needed when we are not using teacher forcing
+        # To feed output of the decoder (the word with highest prob) into itself, has to use for loop, will be slower (is there faster alternative?)
+        translated_tokens_list = []
+        decoder_input = torch.tensor([config.SOS_TOKEN]*batch_size, device=device, requires_grad=False)#.view(1,-1) # take care of different input shape
+        translated_tokens_list.append(decoder_input.unsqueeze(0))
+        eos_encountered_list = [False]*batch_size
+        i = 0
+        
+        # TODO: Even though the logic might be correct, the speed is extremely slow.
+        while ((i < args.max_sentence_length) and (i+1 < target_sequence_length) and (sum(eos_encountered_list) < batch_size)): # fix off-by-1 error, if any
+            
+            logits, decoder_attn = decoder(
+                decoder_input, encoder_outputs
+            )
+            logits = logits.unsqueeze(0)
+            output = F.log_softmax(logits, dim=2)
+            decoder_input = torch.tensor([config.PAD_TOKEN]*batch_size, device=device, requires_grad=False)#.view(1,-1) # take care of different input shape
+            for j in range(batch_size):   
+                
+                if not eos_encountered_list[j]:
+                    # get index of maximum probability word
+                    max_index = output[0,j].max(0)[1]
+                    decoder_input[j] = max_index
+                    loss += loss_function(output[0,j,:].view(1,-1), batch.trg[0][i+1,j].view(1))
+                    number_of_loss_calculation += 1
+                
+                    if max_index == config.EOS_TOKEN or batch.trg[0][i+1,j] == config.EOS_TOKEN: #?
+                        # if EOS token, stop.
+                        eos_encountered_list[j] = True
+                    
+            
+            translated_tokens_list.append(decoder_input.unsqueeze(0))
+            i += 1
+    
+        
+
+    if phase == "train":
+        loss.backward() # this should calculate gradient for both encoder and decoder
+
+        nn.utils.clip_grad_norm_(encoder.parameters(), args.clip)
+        nn.utils.clip_grad_norm_(decoder.parameters(), args.clip)
+
+        decoder_optimizer.step() # does it really matter which one takes step first?
+        encoder_optimizer.step()
+
+        # do not return translation output when training
+        translation_output = None
+    
+    # if validation, test: output translated sentences as well
+    else:
+        translation_output = torch.cat(translated_tokens_list, dim=0)
+        
+    return loss.item() / number_of_loss_calculation, translation_output
+    
     
 def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, epoch_idx, train_data, val_data, trg):
+    if args.attention:
+        run_batch_func = run_batch_with_attention
+    else:
+        run_batch_func = run_batch
+        
     train_iter = data.BucketIterator(
         dataset=train_data, 
         batch_size=args.batch_size,
@@ -257,7 +378,7 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
     
     train_loss_list = []
     for i, train_batch in enumerate(iter(train_iter)):
-        loss, _ = run_batch(
+        loss, _ = run_batch_func(
             "train",
             args,
             encoder,
@@ -285,7 +406,7 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
     val_bleu_list = []
     for i, val_batch in enumerate(iter(val_iter)):
         #val_batch.trg: size N x B
-        loss, translation_output = run_batch(
+        loss, translation_output = run_batch_func(
             "val",
             args,
             encoder,
@@ -314,6 +435,11 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
     return np.mean(train_loss_list), np.mean(val_loss_list), np.mean(val_bleu_list)
         
 def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data, trg):
+    if args.attention:
+        run_batch_func = run_batch_with_attention
+    else:
+        run_batch_func = run_batch
+    
     test_iter = data.BucketIterator(
         dataset=test_data, 
         batch_size=args.batch_size,
@@ -338,7 +464,7 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
     test_source_list = []
     for i, test_batch in enumerate(iter(test_iter)):
         #val_batch.trg: size N x B
-        loss, translation_output = run_batch(
+        loss, translation_output = run_batch_func(
             "test",
             args,
             encoder,
@@ -409,6 +535,8 @@ def rnn_encoder_decoder_argparser():
     parser.add_argument("--model_weights_path", help="Path to save best model weights", type=str, default="../model_weights/")
     parser.add_argument('--save_all_epoch', help="save all epoch", action="store_true")
     parser.add_argument('--relu', help="use relu in decoder after embedding", action="store_true")
+    parser.add_argument('--attention', help="use luong attention decoder", action="store_true")
+    parser.add_argument("--attn_model", help="dot, general, or concat", default='general')
     return parser
 
 if __name__ == '__main__':
