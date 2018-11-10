@@ -222,7 +222,7 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
     else:
         translation_output = torch.cat(translated_tokens_list, dim=0)
         
-    return loss.item() / number_of_loss_calculation, translation_output
+    return loss.item() / number_of_loss_calculation, translation_output, None
     
 def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, batch, device):
 
@@ -290,17 +290,18 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
         # this is needed when we are not using teacher forcing
         # To feed output of the decoder (the word with highest prob) into itself, has to use for loop, will be slower (is there faster alternative?)
         translated_tokens_list = []
+        decoder_attn_list = []
         decoder_input = torch.tensor([config.SOS_TOKEN]*batch_size, device=device, requires_grad=False)#.view(1,-1) # take care of different input shape
         translated_tokens_list.append(decoder_input.unsqueeze(0))
         eos_encountered_list = [False]*batch_size
         i = 0
-        
         # TODO: Even though the logic might be correct, the speed is extremely slow.
         while ((i < args.max_sentence_length) and (i+1 < target_sequence_length) and (sum(eos_encountered_list) < batch_size)): # fix off-by-1 error, if any
             
             logits, decoder_attn = decoder(
                 decoder_input, encoder_outputs
             )
+            decoder_attn_list.append(decoder_attn)
             logits = logits.unsqueeze(0)
             output = F.log_softmax(logits, dim=2)
             decoder_input = torch.tensor([config.PAD_TOKEN]*batch_size, device=device, requires_grad=False)#.view(1,-1) # take care of different input shape
@@ -334,12 +335,13 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
 
         # do not return translation output when training
         translation_output = None
+        decoder_attn_list = None
     
     # if validation, test: output translated sentences as well
     else:
         translation_output = torch.cat(translated_tokens_list, dim=0)
         
-    return loss.item() / number_of_loss_calculation, translation_output
+    return loss.item() / number_of_loss_calculation, translation_output, decoder_attn_list
     
     
 def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, epoch_idx, train_data, val_data, trg):
@@ -378,7 +380,7 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
     
     train_loss_list = []
     for i, train_batch in enumerate(iter(train_iter)):
-        loss, _ = run_batch_func(
+        loss, _, _ = run_batch_func(
             "train",
             args,
             encoder,
@@ -406,7 +408,7 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
     val_bleu_list = []
     for i, val_batch in enumerate(iter(val_iter)):
         #val_batch.trg: size N x B
-        loss, translation_output = run_batch_func(
+        loss, translation_output, _ = run_batch_func(
             "val",
             args,
             encoder,
@@ -462,9 +464,10 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
     test_bleu_list = []
     test_reference_list, translation_output_list = [], []
     test_source_list = []
+    attention_lists = []
     for i, test_batch in enumerate(iter(test_iter)):
         #val_batch.trg: size N x B
-        loss, translation_output = run_batch_func(
+        loss, translation_output, attention_list = run_batch_func(
             "test",
             args,
             encoder,
@@ -488,6 +491,7 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
         test_source_list.append(test_source)
         test_bleu_list.append(test_bleu)
         test_loss_list.append(loss)
+        attention_lists.append(attention_list)
         if i % args.print_every == 0:
             print("test, step: {}, average loss for current epoch: {}, batch loss: {}, average bleu for current epoch: {}, batch bleu: {}".format(
                 i, np.mean(test_loss_list), loss, np.mean(test_bleu_list), test_bleu))
@@ -495,7 +499,7 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
     print("test done. average loss for current epoch: {}, average bleu for current epoch: {}".format(
         np.mean(test_loss_list), np.mean(test_bleu_list)))
     
-    return np.mean(test_loss_list), np.mean(test_bleu_list), test_source_list, test_reference_list, translation_output_list
+    return np.mean(test_loss_list), np.mean(test_bleu_list), test_source_list, test_reference_list, translation_output_list, attention_lists
 
 
 def rnn_encoder_decoder_argparser():
