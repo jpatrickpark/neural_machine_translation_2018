@@ -106,17 +106,17 @@ def run(args):
                     'val epoch loss': val_loss, 
                     'val epoch bleu': val_bleu})
             
-            if early_stop(loss_history["val"], args.early_stopping):
+            if early_stop(bleu_history["val"], args.early_stopping, max):
                 print("Early stopped.")
                 break
     
 
                 
-def early_stop(loss_history, early_stop_k):
+def early_stop(loss_history, early_stop_k, min_or_max=min):
     if len(loss_history) < early_stop_k:
         return False
-    idx_min = loss_history.index(min(loss_history))
-    return len(loss_history) - 1 - idx_min >= early_stop_k
+    idx_min_or_max = loss_history.index(min_or_max(loss_history))
+    return len(loss_history) - 1 - idx_min_or_max >= early_stop_k
         
 def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, batch, device):
 
