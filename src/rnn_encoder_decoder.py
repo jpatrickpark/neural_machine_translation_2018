@@ -301,7 +301,7 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
             logits, decoder_attn = decoder(
                 decoder_input, encoder_outputs
             )
-            decoder_attn_list.append(decoder_attn)
+            decoder_attn_list.append(decoder_attn.detach())
             logits = logits.unsqueeze(0)
             output = F.log_softmax(logits, dim=2)
             decoder_input = torch.tensor([config.PAD_TOKEN]*batch_size, device=device, requires_grad=False)#.view(1,-1) # take care of different input shape
