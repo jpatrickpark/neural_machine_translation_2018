@@ -229,10 +229,10 @@ class LuongAttnDecoderRNN(nn.Module):
             padding_idx=trg_padding_idx
         )
         self.embedding_dropout = nn.Dropout(self.dropout)
-        self.gru = config.RNN_TYPES[self.args.rnn_type](
+        self.gru = config.RNN_TYPES[args.rnn_type](
             input_size = args.embedding_size, 
             hidden_size = args.hidden_size,
-            self.n_layers, 
+            num_layers = self.n_layers, 
             dropout=self.dropout
         )
         self.concat = nn.Linear(self.hidden_size * 2, self.hidden_size)
