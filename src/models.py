@@ -44,6 +44,8 @@ class RnnEncoder(nn.Module):
         #print("after encoder shape", x.shape) # torch.Size([32, 16, 128])
         # dimension of x after encoder: (seq_len, batch, hidden_size)
         #print("encoder hidden shape", self.hidden.shape) # torch.Size([1, 16, 128])
+        if self.num_directions == 2:
+            x = x[:, :, :self.args.hidden_size] + x[:, : ,self.args.hidden_size:]
         return x
     
     def random_init_hidden(self, device, current_batch_size):
@@ -218,7 +220,8 @@ class LuongAttnDecoderRNN(nn.Module):
         self.output_size = output_size
         self.n_layers = args.num_decoder_layers
         self.dropout = args.dropout
-
+        self.relu = args.relu
+        
         # Define layers
         self.embedding = nn.Embedding(self.output_size, self.hidden_size, padding_idx=trg_padding_idx)
         self.embedding_dropout = nn.Dropout(self.dropout)
@@ -242,6 +245,9 @@ class LuongAttnDecoderRNN(nn.Module):
         embedded = embedded.view(1, batch_size, self.hidden_size) # S=1 x B x N
 
         # Get current hidden state from input word and last hidden state
+        
+        if self.relu:
+            embedded = F.relu(embedded)
         rnn_output, self.hidden = self.gru(embedded, self.hidden)
 
         # Calculate attention from current RNN state and all encoder outputs;
