@@ -183,7 +183,7 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
         i = 0
         
         # TODO: Even though the logic might be correct, the speed is extremely slow.
-        while ((i < args.max_sentence_length) and (i+1 < target_sequence_length) and (sum(eos_encountered_list) < batch_size)): # fix off-by-1 error, if any
+        while ((i+1 < target_sequence_length) and (sum(eos_encountered_list) < batch_size)): # fix off-by-1 error, if any
             
             logits = decoder(decoder_input)
             output = F.log_softmax(logits, dim=2) 
@@ -260,7 +260,7 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
         i = 0
         
         # TODO: Even though the logic might be correct, the speed is extremely slow.
-        while ((i < args.max_sentence_length) and (i+1 < target_sequence_length)): # fix off-by-1 error, if any
+        while ((i+1 < target_sequence_length)  and (sum(eos_encountered_list) < batch_size)): # fix off-by-1 error, if any
             
             #logits = decoder(decoder_input)
             
@@ -296,7 +296,7 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
         eos_encountered_list = [False]*batch_size
         i = 0
         # TODO: Even though the logic might be correct, the speed is extremely slow.
-        while ((i < args.max_sentence_length) and (i+1 < target_sequence_length) and (sum(eos_encountered_list) < batch_size)): # fix off-by-1 error, if any
+        while ((i+1 < target_sequence_length) and (sum(eos_encountered_list) < batch_size)): # fix off-by-1 error, if any
             
             logits, decoder_attn = decoder(
                 decoder_input, encoder_outputs
@@ -304,12 +304,12 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
             decoder_attn_list.append(decoder_attn.detach())
             logits = logits.unsqueeze(0)
             output = F.log_softmax(logits, dim=2)
-            decoder_input = torch.tensor([config.PAD_TOKEN]*batch_size, device=device, requires_grad=False)#.view(1,-1) # take care of different input shape
+            decoder_input = torch.tensor([config.PAD_TOKEN]*batch_size, device=device, requires_grad=False)
             for j in range(batch_size):   
                 
                 if not eos_encountered_list[j]:
                     # get index of maximum probability word
-                    max_index = output[0,j].max(0)[1]
+                    max_index = output[0,j].max(0)[1].detach()
                     decoder_input[j] = max_index
                     loss += loss_function(output[0,j,:].view(1,-1), batch.trg[0][i+1,j].view(1))
                     number_of_loss_calculation += 1
