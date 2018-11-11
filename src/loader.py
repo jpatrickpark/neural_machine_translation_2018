@@ -150,8 +150,8 @@ def load_data(args):
     if args.split_chinese_into_characters:
         SRC = data.Field(
             tokenize=tokenize_by_character, 
-            init_token=config.SOS_TOKEN, 
-            eos_token=config.EOS_TOKEN,
+            init_token='<sos>', 
+            eos_token='<eos>',
             include_lengths=True,
             fix_length=args.max_sentence_length
         )
@@ -159,8 +159,8 @@ def load_data(args):
         #TODO: do we need to tokenize vi and zh differently?
         SRC = data.Field(
             tokenize=tokenize_without_punctuations, 
-            init_token=config.SOS_TOKEN, 
-            eos_token=config.EOS_TOKEN,
+            init_token='<sos>', 
+            eos_token='<eos>',
             include_lengths=True,
             fix_length=args.max_sentence_length
         )
@@ -168,8 +168,8 @@ def load_data(args):
     
     EN = data.Field(
         tokenize=tokenize_without_punctuations, 
-        init_token=config.SOS_TOKEN,
-        eos_token=config.EOS_TOKEN,
+        init_token='<sos>',
+        eos_token='<eos>',
         lower=True,
         include_lengths=True,
         fix_length=args.max_sentence_length

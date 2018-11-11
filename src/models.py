@@ -44,6 +44,8 @@ class RnnEncoder(nn.Module):
         #print("after encoder shape", x.shape) # torch.Size([32, 16, 128])
         # dimension of x after encoder: (seq_len, batch, hidden_size)
         #print("encoder hidden shape", self.hidden.shape) # torch.Size([1, 16, 128])
+        if self.num_directions == 2:
+            x = x[:, :, :self.args.hidden_size] + x[:, : ,self.args.hidden_size:]
         return x
     
     def random_init_hidden(self, device, current_batch_size):
@@ -113,7 +115,8 @@ class RnnDecoder(nn.Module):
         super(RnnDecoder, self).__init__()
         self.args = args
         self.n_layers = args.num_decoder_layers
-
+        self.relu = args.relu
+        
         self.embedding = nn.Embedding(
             trg_vocab_size, 
             args.embedding_size, 
@@ -138,6 +141,8 @@ class RnnDecoder(nn.Module):
         # thus we need to set maximum sequence length
         # if we pass the entire training data here, then it's using teacher forcing.
         # TODO: Do we use relu here?
+        if self.relu:
+            x = F.relu(x)
         x, self.hidden = self.rnn(x, self.hidden) # this is actually using teacher forcing
         #print("after decoder shape", x.shape) # torch.Size([40, 16, 128])
         #print("decoder hidden shape", self.hidden.shape) # torch.Size([1, 16, 128])
@@ -215,11 +220,21 @@ class LuongAttnDecoderRNN(nn.Module):
         self.output_size = output_size
         self.n_layers = args.num_decoder_layers
         self.dropout = args.dropout
-
+        self.relu = args.relu
+        
         # Define layers
-        self.embedding = nn.Embedding(self.output_size, self.hidden_size, padding_idx=trg_padding_idx)
+        self.embedding = nn.Embedding(
+            self.output_size, 
+            args.embedding_size, 
+            padding_idx=trg_padding_idx
+        )
         self.embedding_dropout = nn.Dropout(self.dropout)
-        self.gru = nn.GRU(self.hidden_size, self.hidden_size, self.n_layers, dropout=self.dropout)
+        self.gru = config.RNN_TYPES[args.rnn_type](
+            input_size = args.embedding_size, 
+            hidden_size = args.hidden_size,
+            num_layers = self.n_layers, 
+            dropout=self.dropout
+        )
         self.concat = nn.Linear(self.hidden_size * 2, self.hidden_size)
         self.out = nn.Linear(self.hidden_size, self.output_size)
         
@@ -239,6 +254,9 @@ class LuongAttnDecoderRNN(nn.Module):
         embedded = embedded.view(1, batch_size, self.hidden_size) # S=1 x B x N
 
         # Get current hidden state from input word and last hidden state
+        
+        if self.relu:
+            embedded = F.relu(embedded)
         rnn_output, self.hidden = self.gru(embedded, self.hidden)
 
         # Calculate attention from current RNN state and all encoder outputs;
