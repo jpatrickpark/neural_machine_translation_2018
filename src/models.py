@@ -85,29 +85,28 @@ class CnnEncoder(nn.Module):
         
         self.position_embedding = nn.Embedding(args.max_sentence_length, args.embedding_size)
         self.word_embedding = nn.Embedding(src_vocab_size, args.embedding_size, padding_idx = padding_idx)
+        self.dropout = args.dropout
 
         self.conv = nn.ModuleList([nn.Conv1d(args.hidden_size, args.hidden_size, args.kernel_size,
                                       padding=args.kernel_size // 2) for _ in range(args.num_encoder_layers)])
 
-    def forward(self, position_ids, x):
+    def forward(self, x, position_ids):
         
         # Get position and word embeddings 
         position_embed = self.position_embedding(position_ids)
         word_embed = self.word_embedding(x)
         
         # Apply dropout to the sum of position + word embeddings
-        embed = F.dropout(position_embed + word_embed, args.dropout, self.training)
-        
-        # Transform the input to be compatible for Conv1d
-        embed = torch.unsqueeze(embed.transpose(0, 1), 0)
+        embed = F.dropout(position_embed + word_embed, self.dropout, self.training)
         
         # Successive application of convolution layers followed by residual connection and non-linearity        
-        output = embed
+        output = embed.transpose(0,1).transpose(1,2)
+
         for i, layer in enumerate(self.conv):
           # layer(output) is the conv operation, after which we add the original output creating a residual connection
-            output = F.tanh(layer(output)+output)        
+            output = torch.tanh(layer(output)+output)        
 
-        return output
+        return output.transpose(1,2).transpose(0,1)
     
     
 class RnnDecoder(nn.Module):
@@ -216,6 +215,7 @@ class LuongAttnDecoderRNN(nn.Module):
 
         # Keep for reference
         self.attn_model = args.attn_model
+        self.rnn_type = args.rnn_type
         self.hidden_size = args.hidden_size
         self.output_size = output_size
         self.n_layers = args.num_decoder_layers
@@ -276,6 +276,35 @@ class LuongAttnDecoderRNN(nn.Module):
         # Return final output, hidden state, and attention weights (for visualization)
         #print("decoder output", output.shape)
         return output, attn_weights
+    
+    def random_init_hidden(self, device, current_batch_size):
+        # This is needed when using CNN encoder, 
+        # since CNN encoder does not return hidden state
+        # LSTM: output, (h_n, c_n)
+        # rnn, gru: output, h_n
+        
+        # we declare initial hidden tensor every time because the last batch size
+        # might be different from the rest of the batch size,
+        # but feel free to modify this if you have a better idea.
+        self.hidden = torch.zeros(
+            self.n_layers, 
+            current_batch_size, 
+            self.hidden_size, 
+            device=device
+        )
+        
+        # https://r2rt.com/non-zero-initial-states-for-recurrent-neural-networks.html
+        nn.init.xavier_normal_(self.hidden)
+        
+        if self.rnn_type == 'lstm':
+            self.cell_state = torch.zeros(
+                self.n_layers, 
+                current_batch_size, 
+                self.hidden_size, 
+                device=device
+            )
+            nn.init.xavier_normal_(self.cell_state)
+
     
     
 class AttnRnnDecoder(nn.Module):
