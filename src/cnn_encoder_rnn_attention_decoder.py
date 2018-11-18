@@ -443,6 +443,7 @@ def cnn_encoder_decoder_argparser():
     parser.add_argument('--relu', help="use relu in decoder after embedding", action="store_true")
     parser.add_argument('--attention', help="use luong attention decoder", action="store_true")
     parser.add_argument("--attn_model", help="dot, general, or concat", default='general')
+    parser.add_argument("--preprocess_version", help="Version of preprocessing", type=int, default=2)
     return parser
 
 if __name__ == '__main__':

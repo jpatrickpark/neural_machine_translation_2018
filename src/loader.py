@@ -132,6 +132,17 @@ def split_after_removing_punctuations(exclude, line):
     token_list = str.split(line)
     return [tok for tok in token_list if tok not in exclude]
 
+def transform(token):
+    if token == '&amp;':
+        return 'and'
+    elif token.startswith('&apos;'):
+        return "'" + token[6:]
+    return token
+
+def split_after_removing_punctuations_and_replace_special_words(exclude, line):
+    token_list = str.split(line)
+    return [transform(tok) for tok in token_list if tok not in exclude]
+
 def load_data(args):
     '''
     Loads the following files:
@@ -147,6 +158,10 @@ def load_data(args):
     exclude = set(string.punctuation)
     tokenize_without_punctuations = partial(split_after_removing_punctuations, exclude)
     
+    exclude_punctuations_and_ampersand_characters = exclude.union(set(['&quot;', '&#91;', '&#93;', '&apos;']))
+    #print(exclude_punctuations_and_ampersand_characters)
+    tokenize_without_punctuations_and_ampersand_characters = partial(split_after_removing_punctuations_and_replace_special_words, exclude_punctuations_and_ampersand_characters)
+    
     if args.split_chinese_into_characters:
         SRC = data.Field(
             tokenize=tokenize_by_character, 
@@ -157,17 +172,27 @@ def load_data(args):
         )
     else:
         #TODO: do we need to tokenize vi and zh differently?
+        if args.source_lang == 'zh':
+            tokenize_func = tokenize_without_punctuations
+        else:
+            if args.preprocess_version == 1:
+                tokenize_func = tokenize_without_punctuations
+            elif args.preprocess_version >= 2:
+                tokenize_func = tokenize_without_punctuations_and_ampersand_characters
         SRC = data.Field(
-            tokenize=tokenize_without_punctuations, 
+            tokenize=tokenize_func, 
             init_token='<sos>', 
             eos_token='<eos>',
             include_lengths=True,
             fix_length=args.max_sentence_length
         )
         
-    
+    if args.preprocess_version == 1:
+        tokenize_func = tokenize_without_punctuations
+    elif args.preprocess_version >= 2:
+        tokenize_func = tokenize_without_punctuations_and_ampersand_characters
     EN = data.Field(
-        tokenize=tokenize_without_punctuations, 
+        tokenize=tokenize_without_punctuations_and_ampersand_characters, 
         init_token='<sos>',
         eos_token='<eos>',
         lower=True,
