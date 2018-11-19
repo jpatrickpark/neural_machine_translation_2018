@@ -45,6 +45,8 @@ def run(args):
     else:
         assert not args.bidirectional, "if not using attention model, bidirectional must be false"
         decoder = models.RnnDecoder(args, trg_padding_idx, trg_vocab_size).to(device)
+        
+
     
     # initialize weights using gaussian with 0 mean and 0.01 std, just like the paper said
     # TODO: Better initialization. Xavier?
@@ -56,7 +58,22 @@ def run(args):
             elif 'weight' in name:
                 nn.init.xavier_normal_(param)
             #nn.init.normal_(param, std=0.01)
-
+        
+    if args.encoder_word_embedding is not None:
+        encoder_embedding_dict = torch.load(args.encoder_word_embedding)
+        encoder.embedding.load_state_dict({'weight': encoder_embedding_dict['weight']})
+        if args.freeze_all_words:
+            encoder.embedding.requires_grad=False
+    else: #####
+        encoder_embedding_dict = None #####
+    if args.decoder_word_embedding is not None:
+        decoder_embedding_dict = torch.load(args.decoder_word_embedding)
+        decoder.embedding.load_state_dict({'weight': decoder_embedding_dict['weight']})
+        if args.freeze_all_words:
+            decoder.embedding.requires_grad=False
+    else: #####
+        decoder_embedding_dict = None #####
+        
     # TODO: other optimizers
     encoder_optimizer = optim.Adam(encoder.parameters(), lr=args.lr, weight_decay=args.l2_penalty)
     decoder_optimizer = optim.Adam(decoder.parameters(), lr=args.lr, weight_decay=args.l2_penalty)
@@ -86,10 +103,10 @@ def run(args):
     if args.test:
         encoder.load_state_dict(torch.load(os.path.join(args.model_weights_path, 'encoder_weights.pt')))
         decoder.load_state_dict(torch.load(os.path.join(args.model_weights_path, 'decoder_weights.pt')))
-        return test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data, trg)
+        return test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data, trg, encoder_embedding_dict, decoder_embedding_dict) #####
     else:
         for i in range(args.epoch):
-            train_loss, val_loss, val_bleu = train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, train_data, val_data, trg)
+            train_loss, val_loss, val_bleu = train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, train_data, val_data, trg, encoder_embedding_dict, decoder_embedding_dict) #####
             loss_history["train"].append(train_loss)
             loss_history["val"].append(val_loss)
             bleu_history["val"].append(val_bleu)
@@ -123,7 +140,7 @@ def early_stop(loss_history, early_stop_k, min_or_max=min):
     idx_min_or_max = loss_history.index(min_or_max(loss_history))
     return len(loss_history) - 1 - idx_min_or_max >= early_stop_k
         
-def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, batch, device):
+def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, batch, device, encoder_embedding_dict, decoder_embedding_dict): #####
 
     assert phase in ("train", "val", "test"), "invalid phase"
     
@@ -211,6 +228,11 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
 
         nn.utils.clip_grad_norm_(encoder.parameters(), args.clip)
         nn.utils.clip_grad_norm_(decoder.parameters(), args.clip)
+        
+        if (args.encoder_word_embedding is not None) and (not args.freeze_all_words):
+            encoder.embedding.weight.grad.data[encoder_embedding_dict['oov_indices'],:].fill_(0)
+        if (args.decoder_word_embedding is not None) and (not args.freeze_all_words):
+            decoder.embedding.weight.grad.data[decoder_embedding_dict['oov_indices'],:].fill_(0)
 
         decoder_optimizer.step() # does it really matter which one takes step first?
         encoder_optimizer.step()
@@ -224,7 +246,7 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
         
     return loss.item() / number_of_loss_calculation, translation_output, None
     
-def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, batch, device):
+def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, batch, device, encoder_embedding_dict, decoder_embedding_dict): #####
 
     assert phase in ("train", "val", "test"), "invalid phase"
     
@@ -329,7 +351,12 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
 
         nn.utils.clip_grad_norm_(encoder.parameters(), args.clip)
         nn.utils.clip_grad_norm_(decoder.parameters(), args.clip)
-
+        
+        if (args.encoder_word_embedding is not None) and (not args.freeze_all_words):
+            encoder.embedding.weight.grad.data[encoder_embedding_dict['oov_indices'],:].fill_(0)
+        if (args.decoder_word_embedding is not None) and (not args.freeze_all_words):
+            decoder.embedding.weight.grad.data[decoder_embedding_dict['oov_indices'],:].fill_(0)
+            
         decoder_optimizer.step() # does it really matter which one takes step first?
         encoder_optimizer.step()
 
@@ -344,7 +371,7 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
     return loss.item() / number_of_loss_calculation, translation_output, decoder_attn_list
     
     
-def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, epoch_idx, train_data, val_data, trg):
+def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, epoch_idx, train_data, val_data, trg, encoder_embedding_dict, decoder_embedding_dict):
     if args.attention:
         run_batch_func = run_batch_with_attention
     else:
@@ -389,7 +416,9 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
             decoder_optimizer, 
             loss_function,
             train_batch,
-            device
+            device, 
+            encoder_embedding_dict, #####
+            decoder_embedding_dict#####
         )
         train_loss_list.append(loss)
         # TODO: use tensorboard to see train / val plot while training
@@ -417,7 +446,9 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
             decoder_optimizer, 
             loss_function,
             val_batch,
-            device
+            device, 
+            encoder_embedding_dict, #####
+            decoder_embedding_dict#####
         )
         #translation_output = indices, N x B
         #todo: 1. check if trg.vocab.itos is pass in this function. 2.!reference! 
@@ -436,7 +467,7 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
     
     return np.mean(train_loss_list), np.mean(val_loss_list), np.mean(val_bleu_list)
         
-def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data, trg):
+def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data, trg, encoder_embedding_dict, decoder_embedding_dict):
     if args.attention:
         run_batch_func = run_batch_with_attention
     else:
@@ -476,7 +507,9 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
             decoder_optimizer, 
             loss_function,
             test_batch,
-            device
+            device, 
+            encoder_embedding_dict, 
+            decoder_embedding_dict
         )
         #translation_output = indices, N x B
         #todo: 1. check if trg.vocab.itos is pass in this function. 2.!reference! 
@@ -543,7 +576,8 @@ def rnn_encoder_decoder_argparser():
     parser.add_argument("--attn_model", help="dot, general, or concat", default='general')
     parser.add_argument("--preprocess_version", help="Version of preprocessing", type=int, default=2)
     parser.add_argument('--freeze_all_words', help="freeze word embedding and use character embedding from ELMo", action="store_true")
-    parser.add_argument("--word_embedding", help="Word embedding weights file", default=None)
+    parser.add_argument("--encoder_word_embedding", help="Word embedding weights file", default=None)
+    parser.add_argument("--decoder_word_embedding", help="Word embedding weights file", default=None)
     return parser
 
 if __name__ == '__main__':
