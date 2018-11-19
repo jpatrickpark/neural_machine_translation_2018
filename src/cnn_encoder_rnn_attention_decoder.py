@@ -57,7 +57,17 @@ def run(args):
             elif 'weight' in name:
                 nn.init.xavier_normal_(param)
             #nn.init.normal_(param, std=0.01)
-
+            
+    if args.encoder_word_embedding is not None:
+        encoder_embedding_dict = torch.load(args.encoder_word_embedding)
+        encoder.word_embedding.load_state_dict({'weight': encoder_embedding_dict['weight']})
+        if args.freeze_all_words:
+            encoder.word_embedding.requires_grad=False
+    if args.decoder_word_embedding is not None:
+        decoder_embedding_dict = torch.load(args.decoder_word_embedding)
+        decoder.embedding.load_state_dict({'weight': decoder_embedding_dict['weight']})
+        if args.freeze_all_words:
+            decoder.embedding.requires_grad=False
     # TODO: other optimizers
     encoder_optimizer = optim.Adam(encoder.parameters(), lr=args.lr, weight_decay=args.l2_penalty)
     decoder_optimizer = optim.Adam(decoder.parameters(), lr=args.lr, weight_decay=args.l2_penalty)
@@ -231,6 +241,11 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
 
         nn.utils.clip_grad_norm_(encoder.parameters(), args.clip)
         nn.utils.clip_grad_norm_(decoder.parameters(), args.clip)
+
+        if (args.encoder_word_embedding is not None) and (not args.freeze_all_words):
+            encoder.word_embedding.weight.grad.data[encoder_embedding_dict['oov_indices'],:].fill_(0)
+        if (args.decoder_word_embedding is not None) and (not args.freeze_all_words):
+            decoder.embedding.weight.grad.data[decoder_embedding_dict['oov_indices'],:].fill_(0)
 
         decoder_optimizer.step() # does it really matter which one takes step first?
         encoder_optimizer.step()
@@ -445,7 +460,8 @@ def cnn_encoder_decoder_argparser():
     parser.add_argument("--attn_model", help="dot, general, or concat", default='general')
     parser.add_argument("--preprocess_version", help="Version of preprocessing", type=int, default=2)
     parser.add_argument('--freeze_all_words', help="freeze word embedding and use character embedding from ELMo", action="store_true")
-    parser.add_argument("--word_embedding", help="Word embedding weights file", default=None)
+    parser.add_argument("--encoder_word_embedding", help="Word embedding weights file", default=None)
+    parser.add_argument("--decoder_word_embedding", help="Word embedding weights file", default=None)
     return parser
 
 if __name__ == '__main__':
