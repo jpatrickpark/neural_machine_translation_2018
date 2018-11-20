@@ -63,11 +63,15 @@ def run(args):
         encoder.word_embedding.load_state_dict({'weight': encoder_embedding_dict['weight']})
         if args.freeze_all_words:
             encoder.word_embedding.requires_grad=False
+    else: #####
+        encoder_embedding_dict = None #####
     if args.decoder_word_embedding is not None:
         decoder_embedding_dict = torch.load(args.decoder_word_embedding)
         decoder.embedding.load_state_dict({'weight': decoder_embedding_dict['weight']})
         if args.freeze_all_words:
             decoder.embedding.requires_grad=False
+    else: #####
+        decoder_embedding_dict = None #####
     # TODO: other optimizers
     encoder_optimizer = optim.Adam(encoder.parameters(), lr=args.lr, weight_decay=args.l2_penalty)
     decoder_optimizer = optim.Adam(decoder.parameters(), lr=args.lr, weight_decay=args.l2_penalty)
@@ -97,10 +101,10 @@ def run(args):
     if args.test:
         encoder.load_state_dict(torch.load(os.path.join(args.model_weights_path, 'encoder_weights.pt')))
         decoder.load_state_dict(torch.load(os.path.join(args.model_weights_path, 'decoder_weights.pt')))
-        return test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data, trg)
+        return test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data, trg, encoder_embedding_dict, decoder_embedding_dict)
     else:
         for i in range(args.epoch):
-            train_loss, val_loss, val_bleu = train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, train_data, val_data, trg)
+            train_loss, val_loss, val_bleu = train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, train_data, val_data, trg, encoder_embedding_dict, decoder_embedding_dict)
             loss_history["train"].append(train_loss)
             loss_history["val"].append(val_loss)
             bleu_history["val"].append(val_bleu)
@@ -135,7 +139,7 @@ def early_stop(loss_history, early_stop_k, min_or_max=min):
     return len(loss_history) - 1 - idx_min_or_max >= early_stop_k
         
     
-def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, batch, device):
+def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, batch, device, encoder_embedding_dict, decoder_embedding_dict):
 
     assert phase in ("train", "val", "test"), "invalid phase"
     
@@ -261,7 +265,7 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
     return loss.item() / number_of_loss_calculation, translation_output, decoder_attn_list
     
     
-def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, epoch_idx, train_data, val_data, trg):
+def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, epoch_idx, train_data, val_data, trg, encoder_embedding_dict, decoder_embedding_dict):
     
     assert args.attention, "if using cnn encoder, attention must be true"
     run_batch_func = run_batch_with_attention
@@ -305,7 +309,9 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
             decoder_optimizer, 
             loss_function,
             train_batch,
-            device
+            device, 
+            encoder_embedding_dict, #####
+            decoder_embedding_dict#####
         )
         train_loss_list.append(loss)
         # TODO: use tensorboard to see train / val plot while training
@@ -333,7 +339,9 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
             decoder_optimizer, 
             loss_function,
             val_batch,
-            device
+            device, 
+            encoder_embedding_dict, #####
+            decoder_embedding_dict#####
         )
         #translation_output = indices, N x B
         #todo: 1. check if trg.vocab.itos is pass in this function. 2.!reference! 
@@ -392,7 +400,9 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
             decoder_optimizer, 
             loss_function,
             test_batch,
-            device
+            device, 
+            encoder_embedding_dict, #####
+            decoder_embedding_dict#####
         )
         #translation_output = indices, N x B
         #todo: 1. check if trg.vocab.itos is pass in this function. 2.!reference! 
