@@ -466,7 +466,7 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
         for each in val_batch.idx:
             val_reference.append(" ".join(val_iter.dataset[each].trg))
         translation_outputs.append(translation_output.detach()) #
-        test_references.extend(test_reference) #
+        val_references.extend(val_reference) #
         val_bleu = bleu(trg.vocab.itos, translation_output, val_reference)
         val_bleu_list.append(val_bleu)
         val_loss_list.append(loss)
