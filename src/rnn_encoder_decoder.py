@@ -170,7 +170,7 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
     # Feed all target sentences at once instead of reusing output as input
     # nice to look, and should be fast
     number_of_loss_calculation = 0
-    if phase == 'test':
+    if phase != 'train' and args.beam_size > 1:
         pass
         # beam_search
     elif phase == 'train' and np.random.random() < args.teacher_forcing:
