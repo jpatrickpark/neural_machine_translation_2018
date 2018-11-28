@@ -28,7 +28,7 @@ class RnnEncoder(nn.Module):
             bidirectional = args.bidirectional
         )
             
-    def forward(self, x, lengths):
+    def forward(self, hidden, cell_state, x, lengths):
         #print("src shape", x.shape) # torch.Size([32, 16])
         # dimenstion of x: (seq_len, batch, input_size)
         x = self.embedding(x)
@@ -37,16 +37,16 @@ class RnnEncoder(nn.Module):
         
         x = pack_padded_sequence(x, lengths)
         if self.rnn_type == 'lstm':
-            x, (self.hidden, self.cell_state) = self.rnn(x, (self.hidden, self.cell_state))
+            x, (hidden, cell_state) = self.rnn(x, (hidden, cell_state))
         else:
-            x, self.hidden = self.rnn(x, self.hidden)
+            x, hidden = self.rnn(x, hidden)
         x, output_lengths = pad_packed_sequence(x)
         #print("after encoder shape", x.shape) # torch.Size([32, 16, 128])
         # dimension of x after encoder: (seq_len, batch, hidden_size)
         #print("encoder hidden shape", self.hidden.shape) # torch.Size([1, 16, 128])
         if self.num_directions == 2:
             x = x[:, :, :self.args.hidden_size] + x[:, : ,self.args.hidden_size:]
-        return x
+        return x, hidden, cell_state
     
     def random_init_hidden(self, device, current_batch_size):
         # This is only needed for encoder, 
@@ -57,7 +57,7 @@ class RnnEncoder(nn.Module):
         # we declare initial hidden tensor every time because the last batch size
         # might be different from the rest of the batch size,
         # but feel free to modify this if you have a better idea.
-        self.hidden = torch.zeros(
+        hidden = torch.zeros(
             self.args.num_encoder_layers * self.num_directions, 
             current_batch_size, 
             self.args.hidden_size, 
@@ -65,16 +65,20 @@ class RnnEncoder(nn.Module):
         )
         
         # https://r2rt.com/non-zero-initial-states-for-recurrent-neural-networks.html
-        nn.init.xavier_normal_(self.hidden)
+        nn.init.xavier_normal_(hidden)
         
+        cell_state = None
+
         if self.rnn_type == 'lstm':
-            self.cell_state = torch.zeros(
+            cell_state = torch.zeros(
                 self.args.num_encoder_layers * self.num_directions, 
                 current_batch_size, 
                 self.args.hidden_size, 
                 device=device
             )
-            nn.init.xavier_normal_(self.cell_state)
+            nn.init.xavier_normal_(cell_state)
+
+        return hidden, cell_state
     
 
 class CnnEncoder(nn.Module):
@@ -129,10 +133,12 @@ class RnnDecoder(nn.Module):
             dropout = args.dropout,
             num_layers = args.num_decoder_layers,
         )
+
+        self.rnn_type = self.args.rnn_type
         
         self.linear = nn.Linear(args.hidden_size, trg_vocab_size)
 
-    def forward(self, x):
+    def forward(self, hidden, cell_state, x):
         #print("trg shape", x.shape) torch.Size([40, 16])
         x = self.embedding(x)
         #print("embedded shape", x.shape) # torch.Size([40, 16, 256])
@@ -142,12 +148,15 @@ class RnnDecoder(nn.Module):
         # TODO: Do we use relu here?
         if self.relu:
             x = F.relu(x)
-        x, self.hidden = self.rnn(x, self.hidden) # this is actually using teacher forcing
+        if self.rnn_type == 'lstm':
+            x, (hidden, cell_state) = self.rnn(x, (hidden, cell_state))
+        else:
+            x, hidden = self.rnn(x, hidden)
         #print("after decoder shape", x.shape) # torch.Size([40, 16, 128])
         #print("decoder hidden shape", self.hidden.shape) # torch.Size([1, 16, 128])
         x = self.linear(x)
         #print("after linear shape", x.shape) # torch.Size([40, 16, 5679])
-        return x
+        return x, hidden, cell_state
 
 
 class Attn(nn.Module):
@@ -243,7 +252,7 @@ class LuongAttnDecoderRNN(nn.Module):
         assert self.attn_model in ["dot", "general", "concat"]
         self.attn = Attn(self.attn_model, self.hidden_size)
 
-    def forward(self, input_seq, encoder_outputs_a, encoder_outputs_c=None):
+    def forward(self, hidden, cell_state, input_seq, encoder_outputs_a, encoder_outputs_c=None):
         # Note: we run this one step at a time
         if encoder_outputs_c is None:
             encoder_outputs_c = encoder_outputs_a
@@ -258,7 +267,10 @@ class LuongAttnDecoderRNN(nn.Module):
         
         if self.relu:
             embedded = F.relu(embedded)
-        rnn_output, self.hidden = self.gru(embedded, self.hidden)
+        if self.rnn_type == 'lstm':
+            rnn_output, (hidden, cell_state) = self.gru(embedded, (hidden, cell_state))
+        else:
+            rnn_output, hidden = self.gru(embedded, hidden)
 
         # Calculate attention from current RNN state and all encoder outputs;
         # apply to encoder outputs to get weighted average
@@ -276,7 +288,7 @@ class LuongAttnDecoderRNN(nn.Module):
 
         # Return final output, hidden state, and attention weights (for visualization)
         #print("decoder output", output.shape)
-        return output, attn_weights
+        return output, attn_weights, hidden, cell_state
     
     def random_init_hidden(self, device, current_batch_size):
         # This is needed when using CNN encoder, 
@@ -287,7 +299,7 @@ class LuongAttnDecoderRNN(nn.Module):
         # we declare initial hidden tensor every time because the last batch size
         # might be different from the rest of the batch size,
         # but feel free to modify this if you have a better idea.
-        self.hidden = torch.zeros(
+        hidden = torch.zeros(
             self.n_layers, 
             current_batch_size, 
             self.hidden_size, 
@@ -295,16 +307,20 @@ class LuongAttnDecoderRNN(nn.Module):
         )
         
         # https://r2rt.com/non-zero-initial-states-for-recurrent-neural-networks.html
-        nn.init.xavier_normal_(self.hidden)
+        nn.init.xavier_normal_(hidden)
+
+        cell_state = None
         
         if self.rnn_type == 'lstm':
-            self.cell_state = torch.zeros(
+            cell_state = torch.zeros(
                 self.n_layers, 
                 current_batch_size, 
                 self.hidden_size, 
                 device=device
             )
-            nn.init.xavier_normal_(self.cell_state)
+            nn.init.xavier_normal_(cell_state)
+        
+        return hidden, cell_state
 
     
     
