@@ -159,7 +159,7 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
     encoder_outputs = encoder(batch.src[0], position_ids)
     
     # Initiate decoder hidden state
-    decoder.random_init_hidden(device, batch_size)
+    hidden, cell_state = decoder.random_init_hidden(device, batch_size)
     
     number_of_loss_calculation = 0
 
@@ -180,8 +180,8 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
             
             #logits = decoder(decoder_input)
             
-            logits, decoder_attn = decoder(
-                decoder_input, encoder_outputs
+            logits, decoder_attn, hidden, cell_state = decoder(
+                hidden, cell_state, decoder_input, encoder_outputs
             )
             #loss += loss_function(decoder_output, batch.trg[i+1])
             #number_of_loss_calculation += 1
@@ -214,8 +214,8 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
         # TODO: Even though the logic might be correct, the speed is extremely slow.
         while ((i+1 < target_sequence_length) and (sum(eos_encountered_list) < batch_size)): # fix off-by-1 error, if any
             
-            logits, decoder_attn = decoder(
-                decoder_input, encoder_outputs
+            logits, decoder_attn, hidden, cell_state = decoder(
+                hidden, cell_state, decoder_input, encoder_outputs
             )
             decoder_attn_list.append(decoder_attn.detach())
             logits = logits.unsqueeze(0)
