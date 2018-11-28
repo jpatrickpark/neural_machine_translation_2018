@@ -328,6 +328,8 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
     
     val_loss_list = []
     val_bleu_list = []
+	translation_outputs = [] #
+	val_references = [] #
     for i, val_batch in enumerate(iter(val_iter)):
         #val_batch.trg: size N x B
         loss, translation_output, _ = run_batch_func(
@@ -352,13 +354,14 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
         val_bleu_list.append(val_bleu)
         val_loss_list.append(loss)
         if i % args.print_every == 0:
-            print("val, epoch: {}, step: {}, average loss for current epoch: {}, batch loss: {}, average bleu for current epoch: {}, batch bleu: {}".format(
-                epoch_idx, i, np.mean(val_loss_list), loss, np.mean(val_bleu_list), val_bleu))
-        
-    print("val done. epoch: {}, average loss for current epoch: {}, average bleu for current epoch: {}".format(
-        epoch_idx, np.mean(val_loss_list), np.mean(val_bleu_list)))
+			print("val, epoch: {}, step: {}, average loss for current epoch: {}, batch loss: {}, batch bleu: {}".format( #
+				epoch_idx, i, np.mean(val_loss_list), loss, val_bleu)) #
     
-    return np.mean(train_loss_list), np.mean(val_loss_list), np.mean(val_bleu_list)
+	bleu_for_current_epoch = bleu_epoch(trg.vocab.itos, translation_outputs, val_references) #
+    print("val done. epoch: {}, average loss for current epoch: {}, bleu for current epoch: {}".format( #
+        epoch_idx, np.mean(val_loss_list), bleu_for_current_epoch)) #
+    
+    return np.mean(train_loss_list), np.mean(val_loss_list), bleu_for_current_epoch #
         
 def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data, trg):
     if args.attention:
