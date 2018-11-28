@@ -15,6 +15,7 @@ from test_tube import Experiment, HyperOptArgumentParser, SlurmCluster
 import os
 import pathlib
 from detok import detok
+from beam_search import beam_search
 
 def run(args):
     device = torch.device("cuda:{}".format(args.gpu_number) if (not args.cpu) and torch.cuda.is_available() else "cpu")
@@ -169,7 +170,10 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
     # Feed all target sentences at once instead of reusing output as input
     # nice to look, and should be fast
     number_of_loss_calculation = 0
-    if phase == 'train' and np.random.random() < args.teacher_forcing:
+    if phase != 'train' and args.beam_size > 1:
+        pass
+        # beam_search
+    elif phase == 'train' and np.random.random() < args.teacher_forcing:
         logits, hidden, cell_state = decoder(hidden, cell_state, batch.trg[0])
         # get prediction
         # log_softmax with NLLLoss == CrossEntropyLoss with logits
@@ -248,6 +252,10 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
         
     return loss.item() / number_of_loss_calculation, translation_output, None
     
+def pad(l, max_length):
+    while len(l) < max_length:
+        l.append(config.PAD_TOKEN)
+    return l
 def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, batch, device, encoder_embedding_dict, decoder_embedding_dict): #####
 
     assert phase in ("train", "val", "test"), "invalid phase"
@@ -277,10 +285,38 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
     
     number_of_loss_calculation = 0
 
+    if phase != 'train' and args.beam_size > 1:
+        print('using beam search')
+
+        my_beam_search = beam_search(encoder, decoder, args.max_sentence_length, args.beam_size, True)
+        beam_search_result = []
+        for i in range(batch_size):
+            decoder_input = torch.tensor([config.SOS_TOKEN], device=device, requires_grad=False).unsqueeze(0)#.view(1,-1) # take care of different input shape
+            sentences, probs = my_beam_search.search(encoder_outputs[:,i,:].unsqueeze(1), decoder_input, hidden[:,i,:].unsqueeze(1), None if cell_state is None else cell_state[:,i,:].unsqueeze(1))
+            beam_search_result.append(sentences[probs.index(max(probs))])
+
+        padded_beam_search_result = []
+
+        max_length = 0
+        for each in beam_search_result:
+            if len(each) > max_length:
+                max_length = len(each)
+
+        for each in beam_search_result:
+            padded_beam_search_result.append(pad(each, max_length))
+            
+        translated_tokens_list = []
+        for each in padded_beam_search_result:
+            translated_tokens_list.append(torch.tensor(each).unsqueeze(0))
+        
+        translated_output = torch.cat(translated_tokens_list, dim=0)
+
+        return 0, translated_output.transpose(1,0), None
+
     # TEACHER FORCING
     # Feed all target sentences at once instead of reusing output as input
     # nice to look, and should be fast
-    if phase == 'train' and np.random.random() < args.teacher_forcing:
+    elif phase == 'train' and np.random.random() < args.teacher_forcing:
         # this is needed when we are not using teacher forcing
         # To feed output of the decoder (the word with highest prob) into itself, has to use for loop, will be slower (is there faster alternative?)
         translated_tokens_list = []
@@ -534,7 +570,10 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
         for each in test_batch.idx:
             test_reference.append(" ".join(test_iter.dataset[each].trg))
             test_source.append(" ".join(test_iter.dataset[each].src))
+        #if isinstance(translation_output, torch.Tensor): #
         translation_outputs.append(translation_output.detach()) #
+        #else:
+        #translation_outputs.append(translation_output) #
         test_references.extend(test_reference) #
         test_bleu = bleu(trg.vocab.itos, translation_output, test_reference)
         test_reference_list.append(test_reference)
@@ -543,8 +582,8 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
         test_bleu_list.append(test_bleu)
         test_loss_list.append(loss)
         attention_lists.append(attention_list)
-        if i % args.print_every == 0:
-            print("test, step: {}, average loss for current epoch: {}, batch loss: {}, batch bleu: {}".format( #
+        #if i % args.print_every == 0:
+        print("test, step: {}, average loss for current epoch: {}, batch loss: {}, batch bleu: {}".format( #
                 i, np.mean(test_loss_list), loss, test_bleu)) #
         
     bleu_for_current_epoch = bleu_epoch(trg.vocab.itos, translation_outputs, test_references) #
@@ -598,6 +637,7 @@ def rnn_encoder_decoder_argparser():
     parser.add_argument('--freeze_all_words', help="freeze word embedding and use character embedding from ELMo", action="store_true")
     parser.add_argument("--encoder_word_embedding", help="Word embedding weights file", default=None)
     parser.add_argument("--decoder_word_embedding", help="Word embedding weights file", default=None)
+    parser.add_argument("--beam_size", help="beam_size", type=int, default=1)
     return parser
 
 if __name__ == '__main__':
