@@ -1,6 +1,8 @@
 import config
 import numpy as np
 import torch
+import torch.nn.functional as F
+
 class beam_search():
     def __init__(self, encoder, decoder, max_length, beam_size, attention = False):
         """
@@ -32,6 +34,7 @@ class beam_search():
         decoder_hidden_cand = {}
         decoder_cell_state_cand = {}
         decoded_words_cand = {k:[] for k in range(self.beam_size)}
+        decoded_sentences_prob = {k:1 for k in range(self.beam_size)}
         final_sent = []
         final_score = []
         
@@ -43,6 +46,7 @@ class beam_search():
         else: 
             decoder_output, decoder_hidden, decoder_cell_state = self.decoder(decoder_hidden, decoder_cell_state, decoder_input)
             
+        decoder_output = F.softmax(decoder_output, dim=1)
         topv, topi = decoder_output.data.topk(self.beam_size)
         for i in range(self.beam_size):
             decoded_words_cand[i].append(topi.squeeze()[i].item())
@@ -53,15 +57,18 @@ class beam_search():
         ## BEAM-SEARCH
         word_cnt = 0
         while (bool(decoder_hidden_cand)) & (word_cnt <= self.max_length):
+            #print(decoded_sentences_prob)
             word_cnt += 1
             topi = {}
             avail_keys = list(decoder_hidden_cand.keys())
             score_all = []
             for b in avail_keys:
                 if self.attention == True:
-                    decoder_output_cand[b], decoder_attn, decoder_hidden_cand[b], decoder_cell_state_cand[b] = self.decoder(decoder_hidden_cand[b], decoder_cell_state_cand[b], decoder_input_cand[b].unsqueeze(0),  encoder_outputs)
+                    decoder_output, decoder_attn, decoder_hidden_cand[b], decoder_cell_state_cand[b] = self.decoder(decoder_hidden_cand[b], decoder_cell_state_cand[b], decoder_input_cand[b].unsqueeze(0),  encoder_outputs)
+                    decoder_output_cand[b] = F.softmax(decoder_output, dim=1)
                 else:
-                    decoder_output_cand[b], decoder_hidden_cand[b], decoder_cell_state_cand[b] = self.decoder(decoder_hidden_cand[b], decoder_cell_state_cand[b], decoder_input_cand[b])
+                    decoder_output, decoder_hidden_cand[b], decoder_cell_state_cand[b] = self.decoder(decoder_hidden_cand[b], decoder_cell_state_cand[b], decoder_input_cand[b])
+                    decoder_output_cand[b] = F.softmax(decoder_output, dim=1)
                 
                 topv, topi[b] = decoder_output_cand[b].data.topk(len(decoder_hidden_cand))
                 score_all.extend(topv.tolist()[0])
@@ -99,9 +106,13 @@ class beam_search():
             decoder_cell_state_cand = cand_cell_states
             
             for key, s in decoded_words_cand.items():
+                #if decoded_sent_score[key] >= 1:
+                    #print(key, decoded_sent_score[key], s)
+                decoded_sentences_prob[key] *= decoded_sent_score[key] #
                 if config.EOS_TOKEN in s:
                     final_sent.append(s)
-                    final_score.append(decoded_sent_score[key])
+                    #final_score.append(decoded_sent_score[key])
+                    final_score.append(decoded_sentences_prob[key])
                     keys_to_rm.append(key)
                     
             for k in keys_to_rm:
