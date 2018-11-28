@@ -208,7 +208,7 @@ class Attn(nn.Module):
             return energy
         
         elif self.method == 'concat':
-            concat = torch.cat((hidden.transpose(1,0).expand(self.batch_size ,encoder_output.shape[0] ,100), encoder_output.transpose(1,0)), dim = 2)
+            concat = torch.cat((hidden.transpose(1,0).expand(self.batch_size ,encoder_output.shape[0], self.hidden_size), encoder_output.transpose(1,0)), dim = 2)
             tanh = nn.Tanh()
             out = tanh(self.attn(concat)) #size: B x N x hidden_size
             energy = torch.bmm(self.v.expand(self.batch_size, 1, self.hidden_size), out.transpose(2,1)).transpose(1,2)
