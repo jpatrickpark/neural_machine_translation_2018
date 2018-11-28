@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from collections import defaultdict
-from bleu_score import bleu
+from bleu_score import bleu, bleu_epoch
 from test_tube import Experiment, HyperOptArgumentParser, SlurmCluster
 import os
 import pathlib
@@ -443,6 +443,8 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
     
     val_loss_list = []
     val_bleu_list = []
+    translation_outputs = [] #
+    val_references = [] #
     for i, val_batch in enumerate(iter(val_iter)):
         #val_batch.trg: size N x B
         loss, translation_output, _ = run_batch_func(
@@ -463,17 +465,21 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
         val_reference = []
         for each in val_batch.idx:
             val_reference.append(" ".join(val_iter.dataset[each].trg))
+        translation_outputs.append(translation_output.detach()) #
+        val_references.extend(val_reference) #
         val_bleu = bleu(trg.vocab.itos, translation_output, val_reference)
         val_bleu_list.append(val_bleu)
         val_loss_list.append(loss)
         if i % args.print_every == 0:
-            print("val, epoch: {}, step: {}, average loss for current epoch: {}, batch loss: {}, average bleu for current epoch: {}, batch bleu: {}".format(
-                epoch_idx, i, np.mean(val_loss_list), loss, np.mean(val_bleu_list), val_bleu))
+            print("val, epoch: {}, step: {}, average loss for current epoch: {}, batch loss: {}, batch bleu: {}".format( #
+                epoch_idx, i, np.mean(val_loss_list), loss, val_bleu)) #
         
-    print("val done. epoch: {}, average loss for current epoch: {}, average bleu for current epoch: {}".format(
-        epoch_idx, np.mean(val_loss_list), np.mean(val_bleu_list)))
+    bleu_for_current_epoch = bleu_epoch(trg.vocab.itos, translation_outputs, val_references) #
     
-    return np.mean(train_loss_list), np.mean(val_loss_list), np.mean(val_bleu_list)
+    print("val done. epoch: {}, average loss for current epoch: {}, bleu for current epoch: {}".format( #
+        epoch_idx, np.mean(val_loss_list), bleu_for_current_epoch)) #
+    
+    return np.mean(train_loss_list), np.mean(val_loss_list), bleu_for_current_epoch #
         
 def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data, trg, encoder_embedding_dict, decoder_embedding_dict):
     if args.attention:
@@ -504,6 +510,8 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
     test_reference_list, translation_output_list = [], []
     test_source_list = []
     attention_lists = []
+    translation_outputs = [] #
+    test_references = [] #
     for i, test_batch in enumerate(iter(test_iter)):
         #val_batch.trg: size N x B
         loss, translation_output, attention_list = run_batch_func(
@@ -526,6 +534,8 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
         for each in test_batch.idx:
             test_reference.append(" ".join(test_iter.dataset[each].trg))
             test_source.append(" ".join(test_iter.dataset[each].src))
+        translation_outputs.append(translation_output.detach()) #
+        test_references.extend(test_reference) #
         test_bleu = bleu(trg.vocab.itos, translation_output, test_reference)
         test_reference_list.append(test_reference)
         translation_output_list.append(detok(translation_output, np.array(trg.vocab.itos)))
@@ -534,13 +544,14 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
         test_loss_list.append(loss)
         attention_lists.append(attention_list)
         if i % args.print_every == 0:
-            print("test, step: {}, average loss for current epoch: {}, batch loss: {}, average bleu for current epoch: {}, batch bleu: {}".format(
-                i, np.mean(test_loss_list), loss, np.mean(test_bleu_list), test_bleu))
+            print("test, step: {}, average loss for current epoch: {}, batch loss: {}, batch bleu: {}".format( #
+                i, np.mean(test_loss_list), loss, test_bleu)) #
         
-    print("test done. average loss for current epoch: {}, average bleu for current epoch: {}".format(
-        np.mean(test_loss_list), np.mean(test_bleu_list)))
+    bleu_for_current_epoch = bleu_epoch(trg.vocab.itos, translation_outputs, test_references) #
+    print("test done. average loss for current epoch: {}, bleu for current epoch: {}".format( #
+        np.mean(test_loss_list), bleu_for_current_epoch)) #
     
-    return np.mean(test_loss_list), np.mean(test_bleu_list), test_source_list, test_reference_list, translation_output_list, attention_lists
+    return np.mean(test_loss_list), bleu_for_current_epoch, test_source_list, test_reference_list, translation_output_list, attention_lists #
 
 
 def rnn_encoder_decoder_argparser():
