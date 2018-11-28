@@ -285,22 +285,18 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
     
     number_of_loss_calculation = 0
 
-    # TEACHER FORCING
-    # Feed all target sentences at once instead of reusing output as input
-    # nice to look, and should be fast
-    if phase == 'test':
+    if phase != 'train' and args.beam_size > 1:
         print('using beam search')
+
         my_beam_search = beam_search(encoder, decoder, args.max_sentence_length, args.beam_size, True)
         beam_search_result = []
-        #print(encoder_outputs.shape, hidden.shape)
         for i in range(batch_size):
             decoder_input = torch.tensor([config.SOS_TOKEN], device=device, requires_grad=False).unsqueeze(0)#.view(1,-1) # take care of different input shape
-            #print(decoder_input.shape)
             sentences, probs = my_beam_search.search(encoder_outputs[:,i,:].unsqueeze(1), decoder_input, hidden[:,i,:].unsqueeze(1), None if cell_state is None else cell_state[:,i,:].unsqueeze(1))
             beam_search_result.append(sentences[probs.index(max(probs))])
 
         padded_beam_search_result = []
-        #translated_tokens_list = []
+
         max_length = 0
         for each in beam_search_result:
             if len(each) > max_length:
@@ -313,14 +309,13 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
         for each in padded_beam_search_result:
             translated_tokens_list.append(torch.tensor(each).unsqueeze(0))
         
-        #print(translated_tokens_list[0].shape)
-        
         translated_output = torch.cat(translated_tokens_list, dim=0)
-
-        #print(translated_output.shape)
 
         return 0, translated_output.transpose(1,0), None
 
+    # TEACHER FORCING
+    # Feed all target sentences at once instead of reusing output as input
+    # nice to look, and should be fast
     elif phase == 'train' and np.random.random() < args.teacher_forcing:
         # this is needed when we are not using teacher forcing
         # To feed output of the decoder (the word with highest prob) into itself, has to use for loop, will be slower (is there faster alternative?)
@@ -623,7 +618,6 @@ def rnn_encoder_decoder_argparser():
     parser.add_argument("--num_encoder_layers", help="Number of rnn layers in encoder", type=int, default=1)    
     parser.add_argument("--num_decoder_layers", help="Number of rnn layers in encoder", type=int, default=1)
     parser.add_argument("--early_stopping", help="Stop if validation does not improve", type=int, default=10)
-    parser.add_argument("--beam_size", help="beam_size", type=int, default=5)
     parser.add_argument("--gpu_number", help="gpu_number", type=int, default=0)
     parser.add_argument('--l2_penalty', help="L2 pelnalty coefficient in optimizer", type=float,  default=0) #1e-06
     parser.add_argument('--clip', help="clip coefficient in optimizer", type=float,  default=1)
@@ -643,6 +637,7 @@ def rnn_encoder_decoder_argparser():
     parser.add_argument('--freeze_all_words', help="freeze word embedding and use character embedding from ELMo", action="store_true")
     parser.add_argument("--encoder_word_embedding", help="Word embedding weights file", default=None)
     parser.add_argument("--decoder_word_embedding", help="Word embedding weights file", default=None)
+    parser.add_argument("--beam_size", help="beam_size", type=int, default=1)
     return parser
 
 if __name__ == '__main__':

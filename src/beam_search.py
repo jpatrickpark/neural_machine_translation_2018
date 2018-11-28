@@ -37,7 +37,7 @@ class beam_search():
         
         ## INIT
         if self.attention == True:
-            decoder_attn = torch.zeros(self.max_length, self.max_length)
+            #decoder_attn = torch.zeros(self.max_length, self.max_length)
           
             decoder_output, decoder_attn, decoder_hidden, decoder_cell_state = self.decoder(decoder_hidden, decoder_cell_state, decoder_input, encoder_outputs)
         else: 
