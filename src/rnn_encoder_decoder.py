@@ -17,7 +17,7 @@ import pathlib
 from detok import detok
 
 def run(args):
-    device = torch.device("cuda" if (not args.cpu) and torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:{}".format(args.gpu_number) if (not args.cpu) and torch.cuda.is_available() else "cpu")
     print("Using device", device)
     
     train_data, val_data, test_data, src, trg = loader.load_data(args)
@@ -59,14 +59,14 @@ def run(args):
                 nn.init.xavier_normal_(param)
             #nn.init.normal_(param, std=0.01)
         
-    if args.encoder_word_embedding is not None:
+    if (args.encoder_word_embedding is not None) and (not args.test):
         encoder_embedding_dict = torch.load(args.encoder_word_embedding)
         encoder.embedding.load_state_dict({'weight': encoder_embedding_dict['weight']})
         if args.freeze_all_words:
             encoder.embedding.requires_grad=False
     else: #####
         encoder_embedding_dict = None #####
-    if args.decoder_word_embedding is not None:
+    if (args.decoder_word_embedding is not None) and (not args.test):
         decoder_embedding_dict = torch.load(args.decoder_word_embedding)
         decoder.embedding.load_state_dict({'weight': decoder_embedding_dict['weight']})
         if args.freeze_all_words:
@@ -153,14 +153,16 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
     # TODO: it seems that currently batch size is always the same. Make sure to use the last batch
     target_sequence_length, batch_size = batch.trg[0].shape
     
-    encoder.random_init_hidden(device, batch_size)
+    hidden, cell_state = encoder.random_init_hidden(device, batch_size)
     
-    encoder_outputs = encoder(batch.src[0], batch.src[1])
+    encoder_outputs, hidden, cell_state = encoder(hidden, cell_state, batch.src[0], batch.src[1])
     
     # This step is necessary to get the hidden state from encoder
     # TODO: is this mechanism of getting hidden layer correct?
     # Shouldn't it be last n layers, instead of first n layers?
-    decoder.hidden = encoder.hidden[:decoder.n_layers]
+    hidden = hidden[:decoder.n_layers]
+    if cell_state is not None:
+        cell_state = cell_state[:decoder.n_layers]
     
     
     # TEACHER FORCING
@@ -168,7 +170,7 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
     # nice to look, and should be fast
     number_of_loss_calculation = 0
     if phase == 'train' and np.random.random() < args.teacher_forcing:
-        logits = decoder(batch.trg[0])
+        logits, hidden, cell_state = decoder(hidden, cell_state, batch.trg[0])
         # get prediction
         # log_softmax with NLLLoss == CrossEntropyLoss with logits
         output = F.log_softmax(logits, dim=2) 
@@ -202,7 +204,7 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
         # TODO: Even though the logic might be correct, the speed is extremely slow.
         while ((i+1 < target_sequence_length) and (sum(eos_encountered_list) < batch_size)): # fix off-by-1 error, if any
             
-            logits = decoder(decoder_input)
+            logits, hidden, cell_state = decoder(hidden, cell_state, decoder_input)
             output = F.log_softmax(logits, dim=2) 
             decoder_input = torch.tensor([config.PAD_TOKEN]*batch_size, device=device, requires_grad=False).view(1,-1)
             for j in range(batch_size):   
@@ -260,12 +262,18 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
     target_sequence_length, batch_size = batch.trg[0].shape
     #print("This should be batch size:", batch_size) #
     
-    encoder.random_init_hidden(device, batch_size)
+    #encoder.random_init_hidden(device, batch_size)
     
-    encoder_outputs = encoder(batch.src[0], batch.src[1])
+    #encoder_outputs = encoder(batch.src[0], batch.src[1])
+    hidden, cell_state = encoder.random_init_hidden(device, batch_size)
+    
+    encoder_outputs, hidden, cell_state = encoder(hidden, cell_state, batch.src[0], batch.src[1])
     
     # This step is necessary to get the hidden state from encoder
-    decoder.hidden = encoder.hidden[:decoder.n_layers] # Use last (forward) hidden state from encoder #TODO: verify
+    #decoder.hidden = encoder.hidden[:decoder.n_layers] # Use last (forward) hidden state from encoder #TODO: verify
+    hidden = hidden[:decoder.n_layers]
+    if cell_state is not None:
+        cell_state = cell_state[:decoder.n_layers]
     
     number_of_loss_calculation = 0
 
@@ -286,8 +294,8 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
             
             #logits = decoder(decoder_input)
             
-            logits, decoder_attn = decoder(
-                decoder_input, encoder_outputs
+            logits, decoder_attn, hidden, cell_state = decoder(
+                hidden, cell_state, decoder_input, encoder_outputs
             )
             #loss += loss_function(decoder_output, batch.trg[i+1])
             #number_of_loss_calculation += 1
@@ -320,8 +328,8 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
         # TODO: Even though the logic might be correct, the speed is extremely slow.
         while ((i+1 < target_sequence_length) and (sum(eos_encountered_list) < batch_size)): # fix off-by-1 error, if any
             
-            logits, decoder_attn = decoder(
-                decoder_input, encoder_outputs
+            logits, decoder_attn, hidden, cell_state = decoder(
+               hidden, cell_state, decoder_input, encoder_outputs
             )
             decoder_attn_list.append(decoder_attn.detach())
             logits = logits.unsqueeze(0)
@@ -560,6 +568,7 @@ def rnn_encoder_decoder_argparser():
     parser.add_argument("--num_encoder_layers", help="Number of rnn layers in encoder", type=int, default=1)    
     parser.add_argument("--num_decoder_layers", help="Number of rnn layers in encoder", type=int, default=1)
     parser.add_argument("--early_stopping", help="Stop if validation does not improve", type=int, default=10)
+    parser.add_argument("--gpu_number", help="gpu_number", type=int, default=0)
     parser.add_argument('--l2_penalty', help="L2 pelnalty coefficient in optimizer", type=float,  default=0) #1e-06
     parser.add_argument('--clip', help="clip coefficient in optimizer", type=float,  default=1)
     parser.add_argument('--teacher_forcing', help="probability of performing teacher forcing", type=float,  default=0.5)
