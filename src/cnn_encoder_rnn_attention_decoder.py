@@ -350,6 +350,8 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
         val_reference = []
         for each in val_batch.idx:
             val_reference.append(" ".join(val_iter.dataset[each].trg))
+        translation_outputs.append(translation_output.detach()) #
+        val_references.extend(val_reference) #
         val_bleu = bleu(trg.vocab.itos, translation_output, val_reference)
         val_bleu_list.append(val_bleu)
         val_loss_list.append(loss)
@@ -363,7 +365,7 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
     
     return np.mean(train_loss_list), np.mean(val_loss_list), bleu_for_current_epoch #
         
-def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data, trg):
+def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data, trg, encoder_embedding_dict, decoder_embedding_dict):
     if args.attention:
         run_batch_func = run_batch_with_attention
     else:
