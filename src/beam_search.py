@@ -121,8 +121,8 @@ class beam_search():
                 decoded_words_cand.pop(k)
                 decoder_cell_state_cand.pop(k)
 
-		if len(final_score) == 0:
-			# add logic to output at least something
-			pass
+        if len(final_score) == 0:
+            # add logic to output at least something
+            pass
                 
         return final_sent, final_score
