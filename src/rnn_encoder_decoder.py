@@ -87,8 +87,10 @@ def run(args):
     loss_history = defaultdict(list)
     bleu_history = defaultdict(list)
     
+    assert not (args.test and args.val), 'cannot run val and test at the same time'
+
     # Initiate test-tube experiment object
-    if not args.test:
+    if not args.test and not args.val: #
         exp = Experiment(
             name=args.name,
             save_dir=args.logs_path,
@@ -105,6 +107,10 @@ def run(args):
         encoder.load_state_dict(torch.load(os.path.join(args.model_weights_path, 'encoder_weights.pt')))
         decoder.load_state_dict(torch.load(os.path.join(args.model_weights_path, 'decoder_weights.pt')))
         return test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data, trg, encoder_embedding_dict, decoder_embedding_dict) #####
+    if args.val:
+        encoder.load_state_dict(torch.load(os.path.join(args.model_weights_path, 'encoder_weights.pt')))
+        decoder.load_state_dict(torch.load(os.path.join(args.model_weights_path, 'decoder_weights.pt')))
+        return test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, val_data, trg, encoder_embedding_dict, decoder_embedding_dict) #####
     else:
         for i in range(args.epoch):
             train_loss, val_loss, val_bleu = train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, train_data, val_data, trg, encoder_embedding_dict, decoder_embedding_dict) #####
@@ -541,6 +547,8 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
     encoder.eval()
     decoder.eval()
     
+    which_data = 'val' if args.val else 'test'
+
     test_loss_list = []
     test_bleu_list = []
     test_reference_list, translation_output_list = [], []
@@ -583,12 +591,12 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
         test_loss_list.append(loss)
         attention_lists.append(attention_list)
         #if i % args.print_every == 0:
-        print("test, step: {}, average loss for current epoch: {}, batch loss: {}, batch bleu: {}".format( #
-                i, np.mean(test_loss_list), loss, test_bleu)) #
+        print("{}, step: {}, average loss for current epoch: {}, batch loss: {}, batch bleu: {}".format( #
+                which_data, i, np.mean(test_loss_list), loss, test_bleu)) #
         
     bleu_for_current_epoch = bleu_epoch(trg.vocab.itos, translation_outputs, test_references) #
-    print("test done. average loss for current epoch: {}, bleu for current epoch: {}".format( #
-        np.mean(test_loss_list), bleu_for_current_epoch)) #
+    print("{} done. average loss for current epoch: {}, bleu for current epoch: {}".format( #
+        which_data, np.mean(test_loss_list), bleu_for_current_epoch)) #
     
     return np.mean(test_loss_list), bleu_for_current_epoch, test_source_list, test_reference_list, translation_output_list, attention_lists #
 
@@ -603,6 +611,7 @@ def rnn_encoder_decoder_argparser():
     
     parser.add_argument('--name', help="experiment name", default="rnn_encoder_decoder")    
     parser.add_argument('--test', help="Run test instead of training/validation", action="store_true")
+    parser.add_argument('--val', help="Run one epoch of validation", action="store_true")
     parser.add_argument("--njobs", help="Number of jobs to use when loading data", type=int, default=1)
     parser.add_argument("--epoch", help="Number of epoch to run", type=int, default=10000)
     parser.add_argument("--batch_size", help="Batch size", type=int, default=32)
