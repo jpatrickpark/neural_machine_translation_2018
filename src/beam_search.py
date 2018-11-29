@@ -122,7 +122,13 @@ class beam_search():
                 decoder_cell_state_cand.pop(k)
 
         if len(final_score) == 0:
-            # add logic to output at least something
-            pass
+            max_prob = 0
+            max_prob_id = None
+            for k in decoded_sentences_prob.keys():
+                if decoded_sentences_prob[k] > max_prob: 
+                    max_prob_id = k
+                    max_prob = decoded_sentences_prob[k]
+            final_score.append(max_prob)
+            final_sent.append(decoded_words_cand[max_prob_id])
                 
         return final_sent, final_score
