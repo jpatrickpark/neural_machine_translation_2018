@@ -16,6 +16,7 @@ import os
 import pathlib
 from detok import detok
 from beam_search import beam_search
+from shared_funcs import pad, reference_unk_replace
 
 def run(args):
     device = torch.device("cuda:{}".format(args.gpu_number) if (not args.cpu) and torch.cuda.is_available() else "cpu")
@@ -258,10 +259,6 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
         
     return loss.item() / number_of_loss_calculation, translation_output, None
     
-def pad(l, max_length):
-    while len(l) < max_length:
-        l.append(config.PAD_TOKEN)
-    return l
 def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, batch, device, encoder_embedding_dict, decoder_embedding_dict): #####
 
     assert phase in ("train", "val", "test"), "invalid phase"
@@ -524,17 +521,6 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
     
     return np.mean(train_loss_list), np.mean(val_loss_list), bleu_for_current_epoch #
 
-def reference_unk_replace(batch, trg, phase_iter):
-    reference = []
-    for each in batch.idx:
-        #for tok in phase_iter.dataset[each].trg:
-            #if tok not in trg.vocab.stoi:
-            #    print(tok)
-            #if trg.vocab.stoi[tok] == 0:
-            #    print(tok)
-        reference.append(" ".join(['<unk>' if trg.vocab.stoi[s] == 0 else s for s in phase_iter.dataset[each].trg]))
-    return reference
-        
 def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data, trg, encoder_embedding_dict, decoder_embedding_dict):
     if args.attention:
         run_batch_func = run_batch_with_attention
