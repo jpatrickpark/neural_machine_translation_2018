@@ -34,7 +34,7 @@ class beam_search():
         decoder_hidden_cand = {}
         decoder_cell_state_cand = {}
         decoded_words_cand = {k:[] for k in range(self.beam_size)}
-        decoded_sentences_prob = {k:1 for k in range(self.beam_size)}
+        decoded_sentences_prob = {k:1 for k in range(self.beam_size)} # create decoded_sentences_prob
         final_sent = []
         final_score = []
         
@@ -53,11 +53,11 @@ class beam_search():
             decoder_input_cand[i] = topi.squeeze()[i].detach()
             decoder_hidden_cand[i] = decoder_hidden
             decoder_cell_state_cand[i] = decoder_cell_state
+            decoded_sentences_prob[i] = topv.squeeze()[i].detach()
             
         ## BEAM-SEARCH
         word_cnt = 0
         while (bool(decoder_hidden_cand)) & (word_cnt <= self.max_length):
-            #print(decoded_sentences_prob)
             word_cnt += 1
             topi = {}
             avail_keys = list(decoder_hidden_cand.keys())
@@ -71,7 +71,8 @@ class beam_search():
                     decoder_output_cand[b] = F.softmax(decoder_output, dim=1)
                 
                 topv, topi[b] = decoder_output_cand[b].data.topk(len(decoder_hidden_cand))
-                score_all.extend(topv.tolist()[0])
+                score_all.extend((topv*decoded_sentences_prob[b]).tolist()[0]) # multiply conditional probability topv to previous ones
+                #print(topv.tolist()[0])
                 
             score_all = np.array(score_all)   
             max_cand = score_all.argsort()[-len(decoder_hidden_cand):][::-1]
@@ -100,15 +101,20 @@ class beam_search():
                 
                 c_cand = decoder_cell_state_cand[prev_cand_id]
                 cand_cell_states[j] = c_cand
+
+                decoded_sentences_prob[j] = decoded_sent_score[j]
+
                 
             decoded_words_cand = cand_sentences
             decoder_hidden_cand = cand_hiddens
             decoder_cell_state_cand = cand_cell_states
             
+            #print(decoded_sentences_prob)
+            #print(decoded_sent_score)
             for key, s in decoded_words_cand.items():
                 #if decoded_sent_score[key] >= 1:
                     #print(key, decoded_sent_score[key], s)
-                decoded_sentences_prob[key] *= decoded_sent_score[key] #
+                #decoded_sentences_prob[key] *= decoded_sent_score[key] #
                 if config.EOS_TOKEN in s:
                     final_sent.append(s)
                     #final_score.append(decoded_sent_score[key])
