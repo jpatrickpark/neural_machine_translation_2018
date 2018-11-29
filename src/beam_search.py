@@ -34,26 +34,26 @@ class beam_search():
         decoder_hidden_cand = {}
         decoder_cell_state_cand = {}
         decoded_words_cand = {k:[] for k in range(self.beam_size)}
-        decoded_sentences_prob = {k:1 for k in range(self.beam_size)} # create decoded_sentences_prob
+        decoded_sentences_prob = {k:0 for k in range(self.beam_size)} #JP: create decoded_sentences_prob
         final_sent = []
         final_score = []
         
         ## INIT
         if self.attention == True:
-            #decoder_attn = torch.zeros(self.max_length, self.max_length)
+            #decoder_attn = torch.zeros(self.max_length, self.max_length) #JP: this line is actually unnecessary
           
             decoder_output, decoder_attn, decoder_hidden, decoder_cell_state = self.decoder(decoder_hidden, decoder_cell_state, decoder_input, encoder_outputs)
         else: 
             decoder_output, decoder_hidden, decoder_cell_state = self.decoder(decoder_hidden, decoder_cell_state, decoder_input)
             
-        decoder_output = F.softmax(decoder_output, dim=1)
+        decoder_output = F.log_softmax(decoder_output, dim=1)
         topv, topi = decoder_output.data.topk(self.beam_size)
         for i in range(self.beam_size):
             decoded_words_cand[i].append(topi.squeeze()[i].item())
             decoder_input_cand[i] = topi.squeeze()[i].detach()
             decoder_hidden_cand[i] = decoder_hidden
             decoder_cell_state_cand[i] = decoder_cell_state
-            decoded_sentences_prob[i] = topv.squeeze()[i].detach()
+            decoded_sentences_prob[i] += topv.squeeze()[i].detach() #JP: calculate log probability (multiplication becomes addition)
             
         ## BEAM-SEARCH
         word_cnt = 0
@@ -65,19 +65,17 @@ class beam_search():
             for b in avail_keys:
                 if self.attention == True:
                     decoder_output, decoder_attn, decoder_hidden_cand[b], decoder_cell_state_cand[b] = self.decoder(decoder_hidden_cand[b], decoder_cell_state_cand[b], decoder_input_cand[b].unsqueeze(0),  encoder_outputs)
-                    decoder_output_cand[b] = F.softmax(decoder_output, dim=1)
+                    decoder_output_cand[b] = F.log_softmax(decoder_output, dim=1)
                 else:
                     decoder_output, decoder_hidden_cand[b], decoder_cell_state_cand[b] = self.decoder(decoder_hidden_cand[b], decoder_cell_state_cand[b], decoder_input_cand[b])
-                    decoder_output_cand[b] = F.softmax(decoder_output, dim=1)
+                    decoder_output_cand[b] = F.log_softmax(decoder_output, dim=1)
                 
                 topv, topi[b] = decoder_output_cand[b].data.topk(len(decoder_hidden_cand))
-                score_all.extend((topv*decoded_sentences_prob[b]).tolist()[0]) # multiply conditional probability topv to previous ones
-                #print(topv.tolist()[0])
+                score_all.extend((topv+decoded_sentences_prob[b]).tolist()[0]) #JP: multiply (add in log) conditional probability topv to previous ones
                 
             score_all = np.array(score_all)   
             max_cand = score_all.argsort()[-len(decoder_hidden_cand):][::-1]
             decoded_sent_score = score_all[max_cand]
-            #print(topv, topi[b], decoder_output_cand[b])
 
             cand_sentences = {}
             cand_hiddens = {}
@@ -102,7 +100,7 @@ class beam_search():
                 c_cand = decoder_cell_state_cand[prev_cand_id]
                 cand_cell_states[j] = c_cand
 
-                decoded_sentences_prob[j] = decoded_sent_score[j]
+                decoded_sentences_prob[j] = decoded_sent_score[j] # update decoded_sentences_prob
 
                 
             decoded_words_cand = cand_sentences
@@ -110,15 +108,11 @@ class beam_search():
             decoder_cell_state_cand = cand_cell_states
             
             #print(decoded_sentences_prob)
-            #print(decoded_sent_score)
             for key, s in decoded_words_cand.items():
-                #if decoded_sent_score[key] >= 1:
-                    #print(key, decoded_sent_score[key], s)
-                #decoded_sentences_prob[key] *= decoded_sent_score[key] #
                 if config.EOS_TOKEN in s:
                     final_sent.append(s)
                     #final_score.append(decoded_sent_score[key])
-                    final_score.append(decoded_sentences_prob[key])
+                    final_score.append(decoded_sentences_prob[key]) #JP: use the joint probability. actually, same as using decoded_sent_score..
                     keys_to_rm.append(key)
                     
             for k in keys_to_rm:
