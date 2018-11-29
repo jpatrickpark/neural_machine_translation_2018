@@ -42,7 +42,8 @@ class beam_search():
         if self.attention == True:
             #decoder_attn = torch.zeros(self.max_length, self.max_length) #JP: this line is actually unnecessary
           
-            decoder_output, decoder_attn, decoder_hidden, decoder_cell_state = self.decoder(decoder_hidden, decoder_cell_state, decoder_input, encoder_outputs)
+            #decoder_output, decoder_attn, decoder_hidden, decoder_cell_state = self.decoder(decoder_hidden, decoder_cell_state, decoder_input, encoder_outputs)
+            decoder_output, decoder_attn, decoder_hidden, decoder_cell_state = self.decoder(decoder_hidden.contiguous(), decoder_cell_state, decoder_input.contiguous(), encoder_outputs)
         else: 
             decoder_output, decoder_hidden, decoder_cell_state = self.decoder(decoder_hidden, decoder_cell_state, decoder_input)
             
@@ -119,5 +120,9 @@ class beam_search():
                 decoder_hidden_cand.pop(k)
                 decoded_words_cand.pop(k)
                 decoder_cell_state_cand.pop(k)
+
+		if len(final_score) == 0:
+			# add logic to output at least something
+			pass
                 
         return final_sent, final_score

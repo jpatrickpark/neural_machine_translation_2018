@@ -504,9 +504,10 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
         )
         #translation_output = indices, N x B
         #todo: 1. check if trg.vocab.itos is pass in this function. 2.!reference! 
-        val_reference = []
-        for each in val_batch.idx:
-            val_reference.append(" ".join(val_iter.dataset[each].trg))
+        #val_reference = []
+        #for each in val_batch.idx:
+        #    val_reference.append(" ".join(val_iter.dataset[each].trg))
+        val_reference = reference_unk_replace(val_batch, trg, val_iter)
         translation_outputs.append(translation_output.detach()) #
         val_references.extend(val_reference) #
         val_bleu = bleu(trg.vocab.itos, translation_output, val_reference)
@@ -522,6 +523,17 @@ def train_and_val(args, encoder, decoder, encoder_optimizer, decoder_optimizer, 
         epoch_idx, np.mean(val_loss_list), bleu_for_current_epoch)) #
     
     return np.mean(train_loss_list), np.mean(val_loss_list), bleu_for_current_epoch #
+
+def reference_unk_replace(batch, trg, phase_iter):
+    reference = []
+    for each in batch.idx:
+        #for tok in phase_iter.dataset[each].trg:
+            #if tok not in trg.vocab.stoi:
+            #    print(tok)
+            #if trg.vocab.stoi[tok] == 0:
+            #    print(tok)
+        reference.append(" ".join(['<unk>' if trg.vocab.stoi[s] == 0 else s for s in phase_iter.dataset[each].trg]))
+    return reference
         
 def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_function, device, i, test_data, trg, encoder_embedding_dict, decoder_embedding_dict):
     if args.attention:
@@ -573,11 +585,12 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
         )
         #translation_output = indices, N x B
         #todo: 1. check if trg.vocab.itos is pass in this function. 2.!reference! 
-        test_reference = []
+        #test_reference = []
         test_source = []
         for each in test_batch.idx:
-            test_reference.append(" ".join(test_iter.dataset[each].trg))
+            #test_reference.append(" ".join(test_iter.dataset[each].trg))
             test_source.append(" ".join(test_iter.dataset[each].src))
+        test_reference = reference_unk_replace(test_batch, trg, test_iter)
         #if isinstance(translation_output, torch.Tensor): #
         translation_outputs.append(translation_output.detach()) #
         #else:
