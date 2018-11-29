@@ -178,8 +178,34 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
     # nice to look, and should be fast
     number_of_loss_calculation = 0
     if phase != 'train' and args.beam_size > 1:
-        pass
         # beam_search
+        print('using beam search')
+
+        my_beam_search = beam_search(encoder, decoder, args.max_sentence_length, args.beam_size, False)
+        beam_search_result = []
+        for i in range(batch_size):
+            decoder_input = torch.tensor([config.SOS_TOKEN], device=device, requires_grad=False).unsqueeze(0)#.view(1,-1) # take care of different input shape
+            sentences, probs = my_beam_search.search(None, decoder_input, hidden[:,i,:].unsqueeze(1), None if cell_state is None else cell_state[:,i,:].unsqueeze(1))
+            beam_search_result.append(sentences[probs.index(max(probs))])
+
+        padded_beam_search_result = []
+
+        max_length = 0
+        for each in beam_search_result:
+            if len(each) > max_length:
+                max_length = len(each)
+
+        for each in beam_search_result:
+            padded_beam_search_result.append(pad(each, max_length))
+            
+        translated_tokens_list = []
+        for each in padded_beam_search_result:
+            translated_tokens_list.append(torch.tensor(each).unsqueeze(0))
+        
+        translated_output = torch.cat(translated_tokens_list, dim=0)
+
+        return 0, translated_output.transpose(1,0), None
+
     elif phase == 'train' and np.random.random() < args.teacher_forcing:
         logits, hidden, cell_state = decoder(hidden, cell_state, batch.trg[0])
         # get prediction

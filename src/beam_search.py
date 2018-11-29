@@ -44,15 +44,20 @@ class beam_search():
           
             #decoder_output, decoder_attn, decoder_hidden, decoder_cell_state = self.decoder(decoder_hidden, decoder_cell_state, decoder_input, encoder_outputs)
             decoder_output, decoder_attn, decoder_hidden, decoder_cell_state = self.decoder(decoder_hidden.contiguous(), decoder_cell_state, decoder_input.contiguous(), encoder_outputs)
+            decoder_output = F.log_softmax(decoder_output, dim=1)
+            topv, topi = decoder_output.data.topk(self.beam_size)
         else: 
-            decoder_output, decoder_hidden, decoder_cell_state = self.decoder(decoder_hidden, decoder_cell_state, decoder_input)
+            decoder_output, decoder_hidden, decoder_cell_state = self.decoder(decoder_hidden.contiguous(), decoder_cell_state, decoder_input.contiguous())
+            decoder_output = F.log_softmax(decoder_output, dim=2)
+            topv, topi = decoder_output.data.topk(self.beam_size)
+            topv, topi = topv.squeeze(0), topi.squeeze(0)
             
-        decoder_output = F.log_softmax(decoder_output, dim=1)
-        topv, topi = decoder_output.data.topk(self.beam_size)
+        #print(decoder_input, decoder_output.shape, decoder_output.data.shape)
         for i in range(self.beam_size):
             decoded_words_cand[i].append(topi.squeeze()[i].item())
             decoder_input_cand[i] = topi.squeeze()[i].detach()
             decoder_hidden_cand[i] = decoder_hidden
+            #print(decoder_input_cand[i].view(1,-1))
             decoder_cell_state_cand[i] = decoder_cell_state
             decoded_sentences_prob[i] += topv.squeeze()[i].detach() #JP: calculate log probability (multiplication becomes addition)
             
@@ -67,11 +72,15 @@ class beam_search():
                 if self.attention == True:
                     decoder_output, decoder_attn, decoder_hidden_cand[b], decoder_cell_state_cand[b] = self.decoder(decoder_hidden_cand[b], decoder_cell_state_cand[b], decoder_input_cand[b].unsqueeze(0),  encoder_outputs)
                     decoder_output_cand[b] = F.log_softmax(decoder_output, dim=1)
+                    topv, topi[b] = decoder_output_cand[b].data.topk(len(decoder_hidden_cand))
                 else:
-                    decoder_output, decoder_hidden_cand[b], decoder_cell_state_cand[b] = self.decoder(decoder_hidden_cand[b], decoder_cell_state_cand[b], decoder_input_cand[b])
-                    decoder_output_cand[b] = F.log_softmax(decoder_output, dim=1)
+                    decoder_output, decoder_hidden_cand[b], decoder_cell_state_cand[b] = self.decoder(decoder_hidden_cand[b], decoder_cell_state_cand[b], decoder_input_cand[b].view(1,-1))
+                    decoder_output_cand[b] = F.log_softmax(decoder_output, dim=2)
+                    topv, topi_b = decoder_output_cand[b].data.topk(len(decoder_hidden_cand))
+                    topv, topi[b] = topv.squeeze(0), topi_b.squeeze(0)
                 
-                topv, topi[b] = decoder_output_cand[b].data.topk(len(decoder_hidden_cand))
+                #print(decoder_output, topv)
+                #print(topv, topi[b])
                 score_all.extend((topv+decoded_sentences_prob[b]).tolist()[0]) #JP: multiply (add in log) conditional probability topv to previous ones
                 
             score_all = np.array(score_all)   
