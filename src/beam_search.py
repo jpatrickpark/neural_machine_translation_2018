@@ -131,8 +131,8 @@ class beam_search():
                 decoder_cell_state_cand.pop(k)
 
         if len(final_score) == 0:
-            max_prob = 0
-            max_prob_id = None
+            max_prob = decoded_sentences_prob[0]
+            max_prob_id = 0
             for k in decoded_sentences_prob.keys():
                 if decoded_sentences_prob[k] > max_prob: 
                     max_prob_id = k
