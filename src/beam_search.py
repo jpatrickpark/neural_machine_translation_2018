@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 
 class beam_search():
-    def __init__(self, encoder, decoder, max_length, beam_size, attention = False):
+    def __init__(self, encoder, decoder, max_length, beam_size, attention = False, dynamic_sentence_length = False):
         """
         Args:
             encoder: the encoder network
@@ -19,9 +19,10 @@ class beam_search():
         self.attention = attention
         self.max_length = max_length
         self.beam_size = beam_size
+        self.dynamic_sentence_length = dynamic_sentence_length
         
         
-    def search(self, encoder_outputs, decoder_input, decoder_hidden, decoder_cell_state):
+    def search(self, encoder_outputs, decoder_input, decoder_hidden, decoder_cell_state, source_sentence_length = 0):
         """
         Args:
             encoder_output: output of encoder, used for attention. shape: 1 x 1 x hidden_size
@@ -67,7 +68,8 @@ class beam_search():
             
         ## BEAM-SEARCH
         word_cnt = 0
-        while (bool(decoder_hidden_cand)) & (word_cnt <= self.max_length):
+        max_length = 2*source_sentence_length if self.dynamic_sentence_length else self.max_length
+        while (bool(decoder_hidden_cand)) & (word_cnt <= max_length):
             word_cnt += 1
             topi = {}
             avail_keys = list(decoder_hidden_cand.keys())

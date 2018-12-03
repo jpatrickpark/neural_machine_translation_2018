@@ -164,6 +164,7 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
     hidden, cell_state = encoder.random_init_hidden(device, batch_size)
     
     encoder_outputs, hidden, cell_state = encoder(hidden, cell_state, batch.src[0], batch.src[1])
+
     
     # This step is necessary to get the hidden state from encoder
     # TODO: is this mechanism of getting hidden layer correct?
@@ -305,6 +306,9 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
     hidden, cell_state = encoder.random_init_hidden(device, batch_size)
     
     encoder_outputs, hidden, cell_state = encoder(hidden, cell_state, batch.src[0], batch.src[1])
+
+    #print(batch.src[1])
+    #print(encoder_outputs.shape)
     
     # This step is necessary to get the hidden state from encoder
     #decoder.hidden = encoder.hidden[:decoder.n_layers] # Use last (forward) hidden state from encoder #TODO: verify
@@ -317,11 +321,11 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
     if phase != 'train' and args.beam_size > 1:
         print('using beam search')
 
-        my_beam_search = beam_search(encoder, decoder, args.max_sentence_length, args.beam_size, True)
+        my_beam_search = beam_search(encoder, decoder, args.max_sentence_length, args.beam_size, True, args.dynamic_sentence_length)
         beam_search_result = []
         for i in range(batch_size):
             decoder_input = torch.tensor([config.SOS_TOKEN], device=device, requires_grad=False).unsqueeze(0)#.view(1,-1) # take care of different input shape
-            sentences, probs = my_beam_search.search(encoder_outputs[:,i,:].unsqueeze(1), decoder_input, hidden[:,i,:].unsqueeze(1), None if cell_state is None else cell_state[:,i,:].unsqueeze(1))
+            sentences, probs = my_beam_search.search(encoder_outputs[:,i,:].unsqueeze(1), decoder_input, hidden[:,i,:].unsqueeze(1), None if cell_state is None else cell_state[:,i,:].unsqueeze(1), batch.src[1][i].item())
             beam_search_result.append(sentences[probs.index(max(probs))])
 
         padded_beam_search_result = []
@@ -672,6 +676,7 @@ def rnn_encoder_decoder_argparser():
     parser.add_argument("--encoder_word_embedding", help="Word embedding weights file", default=None)
     parser.add_argument("--decoder_word_embedding", help="Word embedding weights file", default=None)
     parser.add_argument("--beam_size", help="beam_size", type=int, default=1)
+    parser.add_argument('--dynamic_sentence_length', help="Use dynamic sentnece length in beam search", action="store_true")
     return parser
 
 if __name__ == '__main__':
