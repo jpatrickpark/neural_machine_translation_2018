@@ -1,3 +1,4 @@
+import string
 def detok(ind_input, ind2word):
     '''
     Turn indices back to string
@@ -18,10 +19,13 @@ def detok(ind_input, ind2word):
             detok_str = ""
         elif isinstance(items_list, str):
             # sometimes items_list is just one string. return it.
-            detok_str = items_list
+            if items_list in string.punctuation:
+                detok_str = ""
+            else:
+                detok_str = items_list
         else:
             # if it is multi-word list, then join them as a string
-            detok_str = " ".join(items_list)
+            detok_str = " ".join([s for s in items_list if s not in string.punctuation])
         detok_output.append(detok_str)
     return detok_output
         
