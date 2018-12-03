@@ -43,10 +43,14 @@ class beam_search():
             #decoder_attn = torch.zeros(self.max_length, self.max_length) #JP: this line is actually unnecessary
           
             #decoder_output, decoder_attn, decoder_hidden, decoder_cell_state = self.decoder(decoder_hidden, decoder_cell_state, decoder_input, encoder_outputs)
+            if decoder_cell_state is not None:
+                decoder_cell_state = decoder_cell_state.contiguous()
             decoder_output, decoder_attn, decoder_hidden, decoder_cell_state = self.decoder(decoder_hidden.contiguous(), decoder_cell_state, decoder_input.contiguous(), encoder_outputs)
             decoder_output = F.log_softmax(decoder_output, dim=1)
             topv, topi = decoder_output.data.topk(self.beam_size)
         else: 
+            if decoder_cell_state is not None:
+                decoder_cell_state = decoder_cell_state.contiguous()
             decoder_output, decoder_hidden, decoder_cell_state = self.decoder(decoder_hidden.contiguous(), decoder_cell_state, decoder_input.contiguous())
             decoder_output = F.log_softmax(decoder_output, dim=2)
             topv, topi = decoder_output.data.topk(self.beam_size)
