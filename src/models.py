@@ -186,10 +186,10 @@ class Attn(nn.Module):
         energy = self.score(hidden, encoder_outputs_a)
         score = F.softmax(energy, dim = 1).view(1, self.batch_size, -1) # works, but bad code!
         if gaussian_multiplier is not None:
+            # currently only works for batch size 1
             assert self.batch_size == 1
-            score = score * gaussian_multiplier.view(1,1,-1)
+            score = score * gaussian_multiplier.view(1, self.batch_size, -1)
         context_vector = torch.bmm(score.transpose(1,0), encoder_outputs_c.transpose(1,0))
-        #print(self.method, context_vector.shape)
         return context_vector, score
     
     def score(self, hidden, encoder_output):
@@ -262,7 +262,9 @@ class LuongAttnDecoderRNN(nn.Module):
         if self.local_p:
             assert device is not None
             self.Wp = nn.Linear(self.hidden_size, self.hidden_size)
-            self.vp = torch.FloatTensor(self.hidden_size).to(device)
+            self.vp = torch.randn(self.hidden_size, dtype=torch.float).to(device) # this should be initialized randomly
+            self.range_tensor = torch.FloatTensor(range(args.max_sentence_length)).to(self.device) # this shouldn't be initialized randomly
+            self.range_tensor.requires_grad=False #range_tensor gets reused every batch
         
 
     def forward(self, hidden, cell_state, input_seq, encoder_outputs_a, encoder_outputs_c=None, src_lengths=None):
@@ -285,37 +287,22 @@ class LuongAttnDecoderRNN(nn.Module):
         else:
             rnn_output, hidden = self.gru(embedded, hidden)
 
-        #print("vp expand shape", self.vp.expand_as(rnn_output).shape)
-        #testing = torch.mm(self.vp.expand_as(rnn_output),rnn_output) # what we want
-        #testing = self.vp * rnn_output #elementwise multiplication
-        #print("is vp cuda",self.vp.is_cuda)
-        #print("is rnn_output cuda", rnn_output.is_cuda)
-        #print(testing.shape)
-
         if self.local_p:
-            print(self.vp.shape, rnn_output.shape, encoder_outputs_a.shape)
             # p_t for the entire batch
             intermediate = torch.mm(F.tanh(self.Wp(rnn_output.squeeze(0))), self.vp.unsqueeze(1)).squeeze(1) # what we want
-            print(intermediate.shape)
-            #intermediate = F.sigmoid(torch.bmm(self.vp, F.tanh(self.Wp(rnn_output))))
-            src_lengths_float = src_lengths.float()
-            p_t = F.sigmoid(intermediate) * src_lengths_float# JP: this length contains sos and eos, and don't do anything weird for window size. Use this number to get the window in such a way that the gradient will flow, but not necessary, because it will also flow through the gaussian multiplier
-            print(p_t)
+            p_t = F.sigmoid(intermediate) * src_lengths.float()# JP: this length contains sos and eos, and don't do anything weird for window size. Use this number to get the window in such a way that the gradient will flow, but not necessary, because it will also flow through the gaussian multiplier
             context, attn_weights = [], []
             seq_len, batch_size = encoder_outputs_a.shape[:2]
-            gaussian_multiplier = -(torch.FloatTensor(range(seq_len)).to(self.device).unsqueeze(-1).expand(seq_len, batch_size) - p_t.unsqueeze(0).expand(seq_len, batch_size)).to(self.device).pow(2)/(self.window_size**2/2)
-            print("gaussian shape", gaussian_multiplier.shape)
+            gaussian_multiplier = -(self.range_tensor[:seq_len].unsqueeze(-1).expand(seq_len, batch_size) - p_t.unsqueeze(0).expand(seq_len, batch_size)).pow(2)/(self.window_size**2/2)
             for i, each in enumerate(torch.floor(p_t).long()): # not sure if I can iterate over tensor
+                # Code gets slowed down 4 times!
                 start = each - self.window_size
                 end = each + self.window_size
                 if start < 0:
-                    start = 0 # could be a problem since start becomes an integer and not a tensor
+                    start = 0 
                 if end > src_lengths[i]:
                     end = src_lengths[i].item()
                 assert end - start >= 2, "This should never happen, since src_lengths >= 2"
-                print("start, end", start, end)
-                #gaussian_multiplier = -(torch.FloatTensor(range(end-start)).to(self.device) - p_t[i]).to(self.device).pow(2)/(self.window_size**2/2)
-                #print("gaussian shape", gaussian_multiplier.shape)
                 #if end - start == 1:
                     # Handle case where the window size is 1 (This should never happen, but just in case)
                     #current_context, current_attn_weights = self.attn(rnn_output, encoder_outputs_a[start].unsqueeze(0), encoder_outputs_c[start].unsqueeze(0))
@@ -326,19 +313,14 @@ class LuongAttnDecoderRNN(nn.Module):
                     encoder_outputs_c[start:end,i,:].unsqueeze(1),
                     gaussian_multiplier[start:end,i]
                 )
-                # generate gaussian vector
                 context.append(current_context)
                 attn_weights.append(current_attn_weights)
-                print("current context shape",current_context.shape)
             context = torch.cat(context) #dim=0 is actually correct
-            #print(context.shape)
-
 
         else:
             # Calculate attention from current RNN state and all encoder outputs;
             # apply to encoder outputs to get weighted average
             context, attn_weights = self.attn(rnn_output, encoder_outputs_a, encoder_outputs_c)
-            #print(context.shape)
 
         # Attentional vector using the RNN hidden state and context vector
         # concatenated together (Luong eq. 5)
