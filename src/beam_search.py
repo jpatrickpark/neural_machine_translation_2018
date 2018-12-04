@@ -22,7 +22,7 @@ class beam_search():
         self.dynamic_sentence_length = dynamic_sentence_length
         
         
-    def search(self, encoder_outputs, decoder_input, decoder_hidden, decoder_cell_state, source_sentence_length = 0):
+    def search(self, encoder_outputs, decoder_input, decoder_hidden, decoder_cell_state, source_sentence_length = None):
         """
         Args:
             encoder_output: output of encoder, used for attention. shape: 1 x 1 x hidden_size
@@ -46,7 +46,7 @@ class beam_search():
             #decoder_output, decoder_attn, decoder_hidden, decoder_cell_state = self.decoder(decoder_hidden, decoder_cell_state, decoder_input, encoder_outputs)
             if decoder_cell_state is not None:
                 decoder_cell_state = decoder_cell_state.contiguous()
-            decoder_output, decoder_attn, decoder_hidden, decoder_cell_state = self.decoder(decoder_hidden.contiguous(), decoder_cell_state, decoder_input.contiguous(), encoder_outputs)
+            decoder_output, decoder_attn, decoder_hidden, decoder_cell_state = self.decoder(decoder_hidden.contiguous(), decoder_cell_state, decoder_input.contiguous(), encoder_outputs, src_lengths=source_sentence_length)
             decoder_output = F.log_softmax(decoder_output, dim=1)
             topv, topi = decoder_output.data.topk(self.beam_size)
         else: 
@@ -68,7 +68,7 @@ class beam_search():
             
         ## BEAM-SEARCH
         word_cnt = 0
-        max_length = 2*source_sentence_length if self.dynamic_sentence_length else self.max_length
+        max_length = 2*source_sentence_length[0].item() if self.dynamic_sentence_length else self.max_length
         while (bool(decoder_hidden_cand)) & (word_cnt <= max_length):
             word_cnt += 1
             topi = {}
@@ -76,7 +76,7 @@ class beam_search():
             score_all = []
             for b in avail_keys:
                 if self.attention == True:
-                    decoder_output, decoder_attn, decoder_hidden_cand[b], decoder_cell_state_cand[b] = self.decoder(decoder_hidden_cand[b], decoder_cell_state_cand[b], decoder_input_cand[b].unsqueeze(0),  encoder_outputs)
+                    decoder_output, decoder_attn, decoder_hidden_cand[b], decoder_cell_state_cand[b] = self.decoder(decoder_hidden_cand[b], decoder_cell_state_cand[b], decoder_input_cand[b].unsqueeze(0),  encoder_outputs, src_lengths=source_sentence_length)
                     decoder_output_cand[b] = F.log_softmax(decoder_output, dim=1)
                     topv, topi[b] = decoder_output_cand[b].data.topk(len(decoder_hidden_cand))
                 else:
