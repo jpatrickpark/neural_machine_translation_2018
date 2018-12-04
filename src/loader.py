@@ -13,6 +13,8 @@ import os
 import string
 from functools import partial
 
+import sacrebleu
+
 class myTranslationDataset(data.Dataset):
     """Defines a dataset for machine translation."""
 
@@ -161,6 +163,10 @@ def split_after_removing_punctuations_and_replace_special_words(exclude, line):
 def v3_tokenize(line):
     token_list = str.split(line)
     return [transform_v3(tok) for tok in token_list]
+
+def sacrebleu_tokenize_zh(line):
+    token_list =  str.split(sacrebleu.tokenize_zh(line))
+    return [tok for tok in token_list if tok not in ["amp","quot"]]
     
 
 def load_data(args):
@@ -185,8 +191,15 @@ def load_data(args):
 
     
     if args.split_chinese_into_characters:
+        if args.preprocess_version >=3:
+            # we could just use the tokenization scheme from sacrebleu and use the not tokenized version of chinese data
+            # also better because it doesn't split english words into characters
+            tokenize_func = sacrebleu_tokenize_zh
+        else:
+            tokenize_func = tokenize_by_character
+            
         SRC = data.Field(
-            tokenize=tokenize_by_character, 
+            tokenize=tokenize_func, 
             init_token='<sos>', 
             eos_token='<eos>',
             include_lengths=True,
@@ -196,7 +209,7 @@ def load_data(args):
         #TODO: do we need to tokenize vi and zh differently?
         if args.source_lang == 'zh':
             if args.preprocess_version >= 3:
-                tokenize_func = v3_tokenize
+                raise NotImplementedError("v3 Chinese tokenizer splits characters")
             else:
                 tokenize_func = tokenize_without_punctuations
         else:
@@ -230,6 +243,15 @@ def load_data(args):
     )
 
     if args.source_lang == 'zh':
+        '''
+        if args.preprocess_version == 3:
+            train, val, test = myTranslationDataset.splits(
+                path=args.data, 
+                train='train', validation='dev', test='test', 
+                exts=('.zh', '.tok.en'), fields=(SRC, EN)
+            )
+        else:
+        '''
         train, val, test = myTranslationDataset.splits(
             path=args.data, 
             train='train', validation='dev', test='test', 
