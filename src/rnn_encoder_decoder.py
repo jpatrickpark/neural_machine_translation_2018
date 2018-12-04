@@ -208,27 +208,34 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
         return 0, translated_output.transpose(1,0), None
 
     elif phase == 'train' and np.random.random() < args.teacher_forcing:
-        logits, hidden, cell_state = decoder(hidden, cell_state, batch.trg[0])
-        # get prediction
-        # log_softmax with NLLLoss == CrossEntropyLoss with logits
-        output = F.log_softmax(logits, dim=2) 
-
-        # Now, loop through output and calculate loss
-        # be careful not to compare SOS_token with first non_sos token
-        # make sure to stop when encountered EOS_token
-    
-        # order of nested for loop is important!
-        for j in range(batch_size):
-            for i in range(target_sequence_length-1):
-                if batch.trg[0][i,j] == config.EOS_TOKEN:
-                    # we do not need to feed the last EOS token to the decoder. 
-                    # we do not need to feed any padding token either. 
-                    # move onto the next data in the batch.
-                    break
-                # first output is what the decoder produced after seeing SOS token
-                # therefore, compare it with second target token
-                loss += loss_function(output[i,j,:].view(1,-1), batch.trg[0][i+1,j].view(1))
-                number_of_loss_calculation += 1
+        # this is needed when we are not using teacher forcing
+        # To feed output of the decoder (the word with highest prob) into itself, has to use for loop, will be slower (is there faster alternative?)
+        translated_tokens_list = []
+        decoder_input = batch.trg[0][0,:].view(1,-1)
+        translated_tokens_list.append(decoder_input)
+        eos_encountered_list = [False]*batch_size
+        i = 0
+        
+        # TODO: Even though the logic might be correct, the speed is extremely slow.
+        while ((i+1 < target_sequence_length) and (sum(eos_encountered_list) < batch_size)): # fix off-by-1 error, if any
+            
+            logits, hidden, cell_state = decoder(hidden, cell_state, decoder_input)
+            output = F.log_softmax(logits, dim=2) 
+            decoder_input = batch.trg[0][i+1,:].view(1,-1)#torch.tensor([config.PAD_TOKEN]*batch_size, device=device, requires_grad=False)#.view(1,-1) # take care of different input shape
+            for j in range(batch_size):   
+                
+                if not eos_encountered_list[j]:
+                    # get index of maximum probability word
+                    loss += loss_function(output[0,j,:].view(1,-1), batch.trg[0][i+1,j].view(1))
+                    number_of_loss_calculation += 1
+                
+                    if batch.trg[0][i+1,j] == config.EOS_TOKEN: #?
+                        # if EOS token, stop.
+                        eos_encountered_list[j] = True
+                    
+            
+            translated_tokens_list.append(decoder_input)
+            i += 1
                 
     else:
         # this is needed when we are not using teacher forcing
