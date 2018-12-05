@@ -262,7 +262,8 @@ class LuongAttnDecoderRNN(nn.Module):
         if self.local_p:
             assert device is not None
             self.Wp = nn.Linear(self.hidden_size, self.hidden_size)
-            self.vp = torch.randn(self.hidden_size, dtype=torch.float).to(device) # this should be initialized randomly
+            #self.vp = torch.randn(self.hidden_size, dtype=torch.float).to(device) # this should be initialized randomly
+            self.vp = nn.Parameter(torch.FloatTensor(self.hidden_size))
             self.range_tensor = torch.FloatTensor(range(args.max_sentence_length)).to(self.device) # this shouldn't be initialized randomly
             self.range_tensor.requires_grad=False #range_tensor gets reused every batch
         
