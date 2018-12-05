@@ -44,7 +44,7 @@ def run(args):
     encoder = models.CnnEncoder(args, src_padding_idx, src_vocab_size).to(device)
     if args.attention:
         assert args.bidirectional, "if using attention model, bidirectional must be true"
-        decoder = models.LuongAttnDecoderRNN(args, trg_padding_idx, trg_vocab_size).to(device)
+        decoder = models.LuongAttnDecoderRNN(args, trg_padding_idx, trg_vocab_size, device).to(device)
     else:
         assert not args.bidirectional, "if not using attention model, bidirectional must be false"
         decoder = models.RnnDecoder(args, trg_padding_idx, trg_vocab_size).to(device)
@@ -171,11 +171,18 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
     if phase != 'train' and args.beam_size > 1:
         print('using beam search')
 
-        my_beam_search = beam_search(encoder, decoder, args.max_sentence_length, args.beam_size, True)
+        #my_beam_search = beam_search(encoder, decoder, args.max_sentence_length, args.beam_size, True)
+        my_beam_search = beam_search(encoder, decoder, args.max_sentence_length, args.beam_size, True, args.dynamic_sentence_length)
         beam_search_result = []
         for i in range(batch_size):
             decoder_input = torch.tensor([config.SOS_TOKEN], device=device, requires_grad=False).unsqueeze(0)#.view(1,-1) # take care of different input shape
-            sentences, probs = my_beam_search.search(encoder_outputs[:,i,:].unsqueeze(1), decoder_input, hidden[:,i,:].unsqueeze(1), None if cell_state is None else cell_state[:,i,:].unsqueeze(1))
+            #sentences, probs = my_beam_search.search(encoder_outputs[:,i,:].unsqueeze(1), decoder_input, hidden[:,i,:].unsqueeze(1), None if cell_state is None else cell_state[:,i,:].unsqueeze(1))
+            sentences, probs = my_beam_search.search(encoder_outputs[:,i,:].unsqueeze(1), 
+                decoder_input, 
+                hidden[:,i,:].unsqueeze(1), 
+                None if cell_state is None else cell_state[:,i,:].unsqueeze(1), 
+                batch.src[1][i].unsqueeze(0).contiguous() # might change this to pass tensor.unsqueeze(0).contiguous() rather than .item()
+            )
             beam_search_result.append(sentences[probs.index(max(probs))])
 
         padded_beam_search_result = []
@@ -211,7 +218,8 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
             #logits = decoder(decoder_input)
             
             logits, decoder_attn, hidden, cell_state = decoder(
-                hidden, cell_state, decoder_input, encoder_outputs
+                #hidden, cell_state, decoder_input, encoder_outputs
+                hidden, cell_state, decoder_input, encoder_outputs, src_lengths=batch.src[1]
             )
             #loss += loss_function(decoder_output, batch.trg[i+1])
             #number_of_loss_calculation += 1
@@ -245,7 +253,8 @@ def run_batch_with_attention(phase, args, encoder, decoder, encoder_optimizer, d
         while ((i+1 < target_sequence_length) and (sum(eos_encountered_list) < batch_size)): # fix off-by-1 error, if any
             
             logits, decoder_attn, hidden, cell_state = decoder(
-                hidden, cell_state, decoder_input, encoder_outputs
+                #hidden, cell_state, decoder_input, encoder_outputs
+                hidden, cell_state, decoder_input, encoder_outputs, src_lengths=batch.src[1]
             )
             decoder_attn_list.append(decoder_attn.detach())
             logits = logits.unsqueeze(0)
@@ -516,6 +525,9 @@ def cnn_encoder_decoder_argparser():
     parser.add_argument("--encoder_word_embedding", help="Word embedding weights file", default=None)
     parser.add_argument("--decoder_word_embedding", help="Word embedding weights file", default=None)
     parser.add_argument("--beam_size", help="beam_size", type=int, default=1)
+    parser.add_argument('--local_p', help="Use local p attention", action="store_true")
+    parser.add_argument('--window_size', help="Window size in local p attention", type=int, default=2)
+    parser.add_argument('--dynamic_sentence_length', help="Use dynamic sentnece length in beam search", action="store_true")
     return parser
 
 if __name__ == '__main__':

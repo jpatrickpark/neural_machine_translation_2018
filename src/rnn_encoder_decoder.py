@@ -182,11 +182,18 @@ def run_batch(phase, args, encoder, decoder, encoder_optimizer, decoder_optimize
         # beam_search
         print('using beam search')
 
-        my_beam_search = beam_search(encoder, decoder, args.max_sentence_length, args.beam_size, False)
+        #my_beam_search = beam_search(encoder, decoder, args.max_sentence_length, args.beam_size, False)
+        my_beam_search = beam_search(encoder, decoder, args.max_sentence_length, args.beam_size, False, args.dynamic_sentence_length)
         beam_search_result = []
         for i in range(batch_size):
             decoder_input = torch.tensor([config.SOS_TOKEN], device=device, requires_grad=False).unsqueeze(0)#.view(1,-1) # take care of different input shape
-            sentences, probs = my_beam_search.search(None, decoder_input, hidden[:,i,:].unsqueeze(1), None if cell_state is None else cell_state[:,i,:].unsqueeze(1))
+            #sentences, probs = my_beam_search.search(None, decoder_input, hidden[:,i,:].unsqueeze(1), None if cell_state is None else cell_state[:,i,:].unsqueeze(1))
+            sentences, probs = my_beam_search.search(encoder_outputs[:,i,:].unsqueeze(1), 
+                decoder_input, 
+                hidden[:,i,:].unsqueeze(1), 
+                None if cell_state is None else cell_state[:,i,:].unsqueeze(1), 
+                batch.src[1][i].unsqueeze(0).contiguous() # might change this to pass tensor.unsqueeze(0).contiguous() rather than .item()
+            )
             beam_search_result.append(sentences[probs.index(max(probs))])
 
         padded_beam_search_result = []
