@@ -176,7 +176,7 @@ class Attn(nn.Module):
             self.attn = nn.Linear(self.hidden_size * 2, hidden_size)
             self.v = nn.Parameter(torch.FloatTensor(1, hidden_size))
 
-    def forward(self, hidden, encoder_outputs_a, encoder_outputs_c=None):
+    def forward(self, hidden, encoder_outputs_a, encoder_outputs_c=None, gaussian_multiplier=None):
         '''
         Return 
             context_vector = size B x 1 x hidden_size'''
@@ -184,9 +184,12 @@ class Attn(nn.Module):
             encoder_outputs_c = encoder_outputs_a
         # Create variable to store attention energies
         energy = self.score(hidden, encoder_outputs_a)
-        score = F.softmax(energy, dim = 1).view(1, self.batch_size, -1)
+        score = F.softmax(energy, dim = 1).view(1, self.batch_size, -1) # works, but bad code!
+        if gaussian_multiplier is not None:
+            # currently only works for batch size 1
+            assert self.batch_size == 1
+            score = score * gaussian_multiplier.view(1, self.batch_size, -1)
         context_vector = torch.bmm(score.transpose(1,0), encoder_outputs_c.transpose(1,0))
-        #print(self.method, context_vector.shape)
         return context_vector, score
     
     def score(self, hidden, encoder_output):
@@ -219,7 +222,7 @@ class Attn(nn.Module):
         
         
 class LuongAttnDecoderRNN(nn.Module):
-    def __init__(self, args, trg_padding_idx, output_size):
+    def __init__(self, args, trg_padding_idx, output_size, device=None):
         super(LuongAttnDecoderRNN, self).__init__()
 
         # Keep for reference
@@ -231,6 +234,10 @@ class LuongAttnDecoderRNN(nn.Module):
         self.dropout = args.dropout
         self.relu = args.relu
         self.embedding_size = args.embedding_size
+        self.local_p = args.local_p
+        self.device = device
+        if self.local_p:
+            self.window_size = args.window_size
         
         # Define layers
         self.embedding = nn.Embedding(
@@ -252,7 +259,16 @@ class LuongAttnDecoderRNN(nn.Module):
         assert self.attn_model in ["dot", "general", "concat"]
         self.attn = Attn(self.attn_model, self.hidden_size)
 
-    def forward(self, hidden, cell_state, input_seq, encoder_outputs_a, encoder_outputs_c=None):
+        if self.local_p:
+            assert device is not None
+            self.Wp = nn.Linear(self.hidden_size, self.hidden_size)
+            #self.vp = torch.randn(self.hidden_size, dtype=torch.float).to(device) # this should be initialized randomly
+            self.vp = nn.Parameter(torch.FloatTensor(self.hidden_size))
+            self.range_tensor = torch.FloatTensor(range(args.max_sentence_length)).to(self.device) # this shouldn't be initialized randomly
+            self.range_tensor.requires_grad=False #range_tensor gets reused every batch
+        
+
+    def forward(self, hidden, cell_state, input_seq, encoder_outputs_a, encoder_outputs_c=None, src_lengths=None):
         # Note: we run this one step at a time
         if encoder_outputs_c is None:
             encoder_outputs_c = encoder_outputs_a
@@ -272,9 +288,40 @@ class LuongAttnDecoderRNN(nn.Module):
         else:
             rnn_output, hidden = self.gru(embedded, hidden)
 
-        # Calculate attention from current RNN state and all encoder outputs;
-        # apply to encoder outputs to get weighted average
-        context, attn_weights = self.attn(rnn_output, encoder_outputs_a, encoder_outputs_c)
+        if self.local_p:
+            # p_t for the entire batch
+            intermediate = torch.mm(F.tanh(self.Wp(rnn_output.squeeze(0))), self.vp.unsqueeze(1)).squeeze(1) # what we want
+            p_t = F.sigmoid(intermediate) * src_lengths.float()# JP: this length contains sos and eos, and don't do anything weird for window size. Use this number to get the window in such a way that the gradient will flow, but not necessary, because it will also flow through the gaussian multiplier
+            context, attn_weights = [], []
+            seq_len, batch_size = encoder_outputs_a.shape[:2]
+            gaussian_multiplier = -(self.range_tensor[:seq_len].unsqueeze(-1).expand(seq_len, batch_size) - p_t.unsqueeze(0).expand(seq_len, batch_size)).pow(2)/(self.window_size**2/2)
+            for i, each in enumerate(torch.floor(p_t).long()): # not sure if I can iterate over tensor
+                # Code gets slowed down 4 times!
+                start = each - self.window_size
+                end = each + self.window_size
+                if start < 0:
+                    start = 0 
+                if end > src_lengths[i]:
+                    end = src_lengths[i].item()
+                assert end - start >= 2, "This should never happen, since src_lengths >= 2"
+                #if end - start == 1:
+                    # Handle case where the window size is 1 (This should never happen, but just in case)
+                    #current_context, current_attn_weights = self.attn(rnn_output, encoder_outputs_a[start].unsqueeze(0), encoder_outputs_c[start].unsqueeze(0))
+                #else:
+                current_context, current_attn_weights = self.attn(
+                    rnn_output[:,i,:].unsqueeze(1), 
+                    encoder_outputs_a[start:end,i,:].unsqueeze(1),
+                    encoder_outputs_c[start:end,i,:].unsqueeze(1),
+                    gaussian_multiplier[start:end,i]
+                )
+                context.append(current_context)
+                attn_weights.append(current_attn_weights)
+            context = torch.cat(context) #dim=0 is actually correct
+
+        else:
+            # Calculate attention from current RNN state and all encoder outputs;
+            # apply to encoder outputs to get weighted average
+            context, attn_weights = self.attn(rnn_output, encoder_outputs_a, encoder_outputs_c)
 
         # Attentional vector using the RNN hidden state and context vector
         # concatenated together (Luong eq. 5)
