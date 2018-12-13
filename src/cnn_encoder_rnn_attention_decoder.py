@@ -454,12 +454,12 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
         )
         #translation_output = indices, N x B
         #todo: 1. check if trg.vocab.itos is pass in this function. 2.!reference! 
-        #test_reference = []
+        test_reference = []
         test_source = []
         for each in test_batch.idx:
-            #test_reference.append(" ".join(test_iter.dataset[each].trg))
+            test_reference.append(" ".join([s for s in test_iter.dataset[each].trg if s not in string.punctuation]))
             test_source.append(" ".join(test_iter.dataset[each].src))
-        test_reference = reference_unk_replace(test_batch, trg, test_iter)
+        #test_reference = reference_unk_replace(test_batch, trg, test_iter)
         translation_outputs.append(translation_output.detach()) #
         test_references.extend(test_reference) #
         test_bleu = bleu(trg.vocab.itos, translation_output, test_reference)

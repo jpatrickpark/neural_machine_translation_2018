@@ -1,5 +1,5 @@
 import string
-def detok(ind_input, ind2word):
+def detok(ind_input, ind2word, remove_punc=True):
     '''
     Turn indices back to string
     
@@ -25,7 +25,10 @@ def detok(ind_input, ind2word):
                 detok_str = items_list
         else:
             # if it is multi-word list, then join them as a string
-            detok_str = " ".join([s for s in items_list if s not in string.punctuation])
+            if remove_punc:
+                detok_str = " ".join([s for s in items_list if s not in string.punctuation])
+            else:
+                detok_str = " ".join(items_list)
         detok_output.append(detok_str)
     return detok_output
         

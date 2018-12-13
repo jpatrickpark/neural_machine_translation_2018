@@ -17,6 +17,7 @@ import pathlib
 from detok import detok
 from beam_search import beam_search
 from shared_funcs import pad, reference_unk_replace
+import string
 
 def run(args):
     device = torch.device("cuda:{}".format(args.gpu_number) if (not args.cpu) and torch.cuda.is_available() else "cpu")
@@ -620,12 +621,12 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
         )
         #translation_output = indices, N x B
         #todo: 1. check if trg.vocab.itos is pass in this function. 2.!reference! 
-        #test_reference = []
+        test_reference = []
         test_source = []
         for each in test_batch.idx:
-            #test_reference.append(" ".join(test_iter.dataset[each].trg))
+            test_reference.append(" ".join([s for s in test_iter.dataset[each].trg if s not in string.punctuation]))
             test_source.append(" ".join(test_iter.dataset[each].src))
-        test_reference = reference_unk_replace(test_batch, trg, test_iter)
+        #test_reference = reference_unk_replace(test_batch, trg, test_iter)
         #if isinstance(translation_output, torch.Tensor): #
         translation_outputs.append(translation_output.detach()) #
         #else:
@@ -633,7 +634,7 @@ def test(args, encoder, decoder, encoder_optimizer, decoder_optimizer, loss_func
         test_references.extend(test_reference) #
         test_bleu = bleu(trg.vocab.itos, translation_output, test_reference)
         test_reference_list.append(test_reference)
-        translation_output_list.append(detok(translation_output, np.array(trg.vocab.itos)))
+        translation_output_list.append(detok(translation_output, np.array(trg.vocab.itos), False))
         test_source_list.append(test_source)
         test_bleu_list.append(test_bleu)
         test_loss_list.append(loss)
