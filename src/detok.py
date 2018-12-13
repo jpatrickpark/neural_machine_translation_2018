@@ -12,7 +12,7 @@ def detok(ind_input, ind2word, remove_punc=True):
     for i in range(ind_input.shape[1]):
         tok_trg = ind_input[:,i]
         tok_trg = tok_trg[(tok_trg>3) | (tok_trg==0)] #remove padding, SOS, EOS
-        items_list = ind2word[tok_trg]
+        items_list = ind2word[tok_trg.cpu()]
         
         if len(items_list) == 0:
             # not sure if this case ever happens yet.
