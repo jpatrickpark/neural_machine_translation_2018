@@ -18,6 +18,7 @@ import pathlib
 from detok import detok
 from beam_search import beam_search
 from shared_funcs import pad, reference_unk_replace
+import string
 
 def run(args):
     device = torch.device("cuda" if (not args.cpu) and torch.cuda.is_available() else "cpu")
