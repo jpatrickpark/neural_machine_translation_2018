@@ -1,5 +1,8 @@
 # neural_machine_trainslation_2018
 
+## Hyperparameter search result
+https://docs.google.com/spreadsheets/d/1A1rpI208p84gCmjD_chWu7UFmgf2vNDZOhx-PoHQXtY/edit?usp=sharing
+
 ## Sample script for training on vi-en
 ```bash
 python3 rnn_encoder_decoder.py --source_lang=vi --data=../data/iwslt-vi-en --num_encoder_layers=1 --num_decoder_layers=1 --save_all_epoch --dropout=0.2
